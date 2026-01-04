@@ -11,7 +11,7 @@ function RegisterSuccess() {
                 <h1 className="font-semibold text-white text-lg">successfully created!</h1>
             </div>
 
-            <Link to="/tab/login" className="text-[#143F81] px-4 py-2 bg-white text-center font-semibold text-lg rounded-xl">BACK TO LOGIN</Link>
+            <Link to="/tab/Login" className="text-[#143F81] px-4 py-2 bg-white text-center font-semibold text-lg rounded-xl">BACK TO LOGIN</Link>
         </div>
     )
 }
