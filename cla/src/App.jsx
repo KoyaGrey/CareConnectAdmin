@@ -9,6 +9,7 @@ import Verification from "./tabs/Verification";
 import ResetPassword from "./tabs/ResetPassword";
 
 import MainLayout from "./tabs/MainLayout";
+import AdminDashboard from "./tabs/AdminDashboard";
 export default function App() {
   return (
     <Routes>
@@ -25,7 +26,7 @@ export default function App() {
           <Route path="reset-password" element={<ResetPassword />} />
           
       </Route>
-
+    <Route path="/tab/dashboard" element={<AdminDashboard />} />
       {/* Other routes */}
       <Route path="/web/*" element={<MainLayout />} />
     </Routes>

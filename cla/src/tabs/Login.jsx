@@ -109,14 +109,14 @@ function Login() {
             >
                 Forgot Password?
             </Link>
-
+                <Link to="/tab/dashboard">
             <button
                 onClick={handleLogin}
                 className="bg-white text-[#143F81] font-bold text-2xl md:text-xl px-9 md:px-7 py-2 rounded-xl mt-4 cursor-pointer"
             >
                 LOGIN
             </button>
-
+                </Link>
             <Link
                 to="/tab/register"
                 className="hover:underline text-white font-semibold text-2xl md:text-xl mt-4 cursor-pointer"
