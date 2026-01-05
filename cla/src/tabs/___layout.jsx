@@ -4,12 +4,13 @@ import CareConnect from '../component/img/CareConnectLogo.png';
 
 function TabLayout() {
     return (
-        <div className="relative h-screen">
+        <div className="relative ">
             {/* Fixed logo top-left */}
-            <img 
-                src={CareConnect} 
-                className="w-[280px] h-[200px] fixed top-0 left-0"
-            />
+           <img
+  src={CareConnect}
+  className="w-[280px] h-[200px] fixed top-0 left-1/2 -translate-x-1/2"
+ />
+
 
             {/* Centered content */}
             <div className="flex h-screen items-center justify-center px-6 md:px-3">

@@ -13,7 +13,6 @@ function Login() {
 
     const [errors, setErrors] = useState({});
 
-    // ✅ live field validation
     const validateField = (name, value) => {
         if (name === 'username') {
             if (!value.trim()) return 'Username is required';
@@ -21,13 +20,12 @@ function Login() {
 
         if (name === 'password') {
             if (!value) return 'Password is required';
-            if (value.length < 8) return 'Password must be at least 8 characters';
+            if (value.length < 6) return 'Invalid password.';
         }
 
         return '';
     };
 
-    // ✅ live on change
     const handleChange = (e) => {
         const { name, value } = e.target;
 
