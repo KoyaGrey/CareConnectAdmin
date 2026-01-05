@@ -79,8 +79,15 @@ function Register() {
         return Object.keys(newErrors).length === 0;
     };
 
+    const isFormValid = Object.keys(formData).every((key) => {
+        return validateField(key, formData[key], formData) === '';
+    });
+
     const handleRegister = () => {
-        if (!validate()) return;
+        if (!validate()) {
+            alert('Please check your inputs and try again.');
+            return;
+        }
         navigate('/tab/register-success');
     };
 
@@ -141,7 +148,8 @@ function Register() {
 
             <button
                 onClick={handleRegister}
-                className="bg-white text-[#143F81] font-bold text-2xl px-8 py-2 rounded-xl mt-4">
+                className="bg-white text-[#143F81] font-bold text-2xl px-8 py-2 rounded-xl mt-4 hover:bg-gray-100"
+            >
                 Sign Up
             </button>
         </div>
