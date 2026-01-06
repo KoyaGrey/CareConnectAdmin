@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { ShowPasswordIcon, HidePasswordIcon } from '../component/svg/PasswordIcon';
 import { Link, useNavigate } from 'react-router-dom';
+import { authenticate, setUserRole, ROLES } from '../utils/auth';
 
 function Login() {
     const navigate = useNavigate();
@@ -41,24 +42,40 @@ function Login() {
         });
     };
 
-    const handleLogin = () => {
-        let newErrors = {};
+    const handleLogin = async () => {
+    let newErrors = {};
 
-        Object.keys(formData).forEach((key) => {
-            const error = validateField(key, formData[key]);
-            if (error) newErrors[key] = error;
-        });
+    Object.keys(formData).forEach((key) => {
+        const error = validateField(key, formData[key]);
+        if (error) newErrors[key] = error;
+    });
 
-        setErrors(newErrors);
+    setErrors(newErrors);
 
         if (Object.keys(newErrors).length === 0) {
-            // Login Logic
-            console.log('Login success', formData);
-            navigate('/tab/dashboard');
+            try {
+                // Use centralized authentication
+                const role = await authenticate(formData.username, formData.password);
+                
+                // Save role using centralized utility
+                setUserRole(role);
+
+                console.log('Login success:', role);
+
+                // Role-based redirect
+                if (role === ROLES.SUPER_ADMIN) {
+                    navigate('/superadmin/dashboard');
+                } else {
+                    navigate('/admin/dashboard');
+                }
+            } catch (error) {
+                alert('Invalid username or password. Please try again.');
+            }
         } else {
             alert('Please fill in all fields correctly.');
         }
     };
+
 
     const isFormValid = Object.keys(formData).every((key) => {
         return validateField(key, formData[key]) === '';
@@ -123,12 +140,7 @@ function Login() {
             >
                 LOGIN
             </button>
-            <Link
-                to="/tab/register"
-                className="hover:underline text-white font-semibold text-2xl md:text-xl mt-4 cursor-pointer"
-            >
-                Sign Up as Admin
-            </Link>
+            
         </div>
     );
 }

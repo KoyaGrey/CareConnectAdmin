@@ -1,8 +1,8 @@
 import React, { useMemo, useState } from 'react';
-import AdminLayout from './AdminLayout';
-import ArchiveModal from '../component/ArchiveModal';
+import AdminLayout from '../AdminLayout';
+import ArchiveModal from '../../component/ArchiveModal';
 
-function AdminDashboard() {
+function SuperAdminDashboard() {
   const [caregivers, setCaregivers] = useState([
     { id: 'CG-001', name: 'Sarah Johnson', email: 'sarah.j@careconnect.com', status: 'Active', lastActive: 'Just now', assignedPatient: 'Zaldy Largo', type: 'caregiver' },
     { id: 'CG-002', name: 'Michael Zaldivar', email: 'michael.z@careconnect.com', status: 'Active', lastActive: 'Just now', assignedPatient: 'Clint Fundano', type: 'caregiver' },
@@ -350,4 +350,4 @@ function AdminDashboard() {
   );
 }
 
-export default AdminDashboard;
+export default SuperAdminDashboard;

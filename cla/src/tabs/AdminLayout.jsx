@@ -1,12 +1,21 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import ConfirmationModal from '../component/ConfirmationModal';
 import EditProfileModal from '../component/EditProfileModal';
+import { getCurrentRole, logout, ROLES } from '../utils/auth';
 
-function AdminLayout({ pageTitle = 'Overview', children, onSearchChange }) {
+function AdminLayout({
+  pageTitle = 'Overview',
+  children,
+  onSearchChange
+}) 
+{
+ 
+  const role = getCurrentRole() || ROLES.ADMIN; // fallback to "ADMIN"
+
   const navLinkBase =
     'w-full flex items-center justify-between px-4 py-3 rounded-lg text-left transition-colors';
-  const navInactive = 'text-blue-200 hover:bg-blue-800';
+  const navInactive = 'text-blue-200 hover:bg-blue-800';                    
   const navActive = 'bg-blue-600 text-white';
 
   const [searchTerm, setSearchTerm] = useState('');
@@ -42,6 +51,7 @@ function AdminLayout({ pageTitle = 'Overview', children, onSearchChange }) {
   };
 
   const handleLogoutConfirm = () => {
+    logout(); // Use centralized logout utility
     navigate('/tab/login', { replace: true });
   };
 
@@ -54,13 +64,15 @@ function AdminLayout({ pageTitle = 'Overview', children, onSearchChange }) {
           <div className="mb-1">
             <span className="text-white font-semibold text-lg">CareConnect</span>
           </div>
-          <p className="text-blue-200 text-xs">Welcome, Admin</p>
+          <p className="text-blue-200 text-xs">
+          Welcome, {role === ROLES.SUPER_ADMIN ? 'Super Admin' : 'Admin'}</p>
+
         </div>
 
         {/* Navigation Menu (Dashboard, Caregivers, Patients) */}
         <nav className="flex-1 p-4 space-y-1">
           <NavLink
-            to="/tab/dashboard"
+            to={role === 'SUPER_ADMIN' ? '/superadmin/dashboard' : '/admin/dashboard'}
             className={({ isActive }) =>
               `${navLinkBase} ${isActive ? navActive : navInactive}`
             }
@@ -69,7 +81,7 @@ function AdminLayout({ pageTitle = 'Overview', children, onSearchChange }) {
           </NavLink>
 
           <NavLink
-            to="/tab/caregivers"
+            to={role === 'SUPER_ADMIN' ? '/superadmin/caregivers' : '/admin/caregivers'}
             className={({ isActive }) =>
               `${navLinkBase} ${isActive ? navActive : navInactive}`
             }
@@ -78,7 +90,7 @@ function AdminLayout({ pageTitle = 'Overview', children, onSearchChange }) {
           </NavLink>
 
           <NavLink
-            to="/tab/patients"
+            to={role === 'SUPER_ADMIN' ? '/superadmin/patients' : '/admin/patients'}
             className={({ isActive }) =>
               `${navLinkBase} ${isActive ? navActive : navInactive}`
             }
@@ -87,13 +99,25 @@ function AdminLayout({ pageTitle = 'Overview', children, onSearchChange }) {
           </NavLink>
 
           <NavLink
-            to="/tab/archive"
+            to={role === 'SUPER_ADMIN' ? '/superadmin/archive' : '/admin/archive'}
             className={({ isActive }) =>
               `${navLinkBase} ${isActive ? navActive : navInactive}`
             }
           >
             <span className="font-medium">Archive</span>
           </NavLink>
+
+          {role === ROLES.SUPER_ADMIN && (
+            <NavLink
+              to="/superadmin/admins"
+              className={({ isActive }) =>
+                `${navLinkBase} ${isActive ? navActive : navInactive}`
+              }
+            >
+              <span className="font-medium">Manage Admins</span>
+            </NavLink>
+          )}
+            
         </nav>
 
         {/* Settings / Reports / Subscribe removed as requested */}
@@ -132,7 +156,8 @@ function AdminLayout({ pageTitle = 'Overview', children, onSearchChange }) {
               type="button"
               onClick={() => setIsAccountMenuOpen((o) => !o)}
               className="w-10 h-10 bg-[#143F81] rounded-full flex items-center justify-center text-white font-bold relative"
-            >
+          
+          >
               AD
             </button>
 
