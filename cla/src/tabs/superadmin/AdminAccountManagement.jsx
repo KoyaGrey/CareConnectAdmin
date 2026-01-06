@@ -4,9 +4,9 @@ import ArchiveModal from '../../component/ArchiveModal';
 
 function AdminAccountManagement() {
   const [admins, setAdmins] = useState([
-    { id: 'ADM-001', name: 'John Admin', email: 'john.admin@careconnect.com', username: 'johnadmin', status: 'Active', lastActive: 'Just now', role: 'ADMIN', createdAt: '2024-01-15' },
-    { id: 'ADM-002', name: 'Jane Manager', email: 'jane.manager@careconnect.com', username: 'janemanager', status: 'Active', lastActive: '1 hour ago', role: 'ADMIN', createdAt: '2024-02-20' },
-    { id: 'ADM-003', name: 'Bob Supervisor', email: 'bob.supervisor@careconnect.com', username: 'bobsupervisor', status: 'Inactive', lastActive: '3 days ago', role: 'ADMIN', createdAt: '2024-03-10' },
+    { id: 'ADM-001', name: 'Emman Dator', email: 'dator.emman@careconnect.com', username: 'adminemman', status: 'Active', lastActive: 'Just now', role: 'ADMIN', createdAt: '2024-01-15' },
+    { id: 'ADM-002', name: 'Majan Taganna', email: 'majan.taganna@careconnect.com', username: 'adminmajan', status: 'Active', lastActive: '1 hour ago', role: 'ADMIN', createdAt: '2024-02-20' },
+    { id: 'ADM-003', name: 'Clarissa Arzadon', email: 'cla.arzadon@careconnect.com', username: 'admincla', status: 'Inactive', lastActive: '3 days ago', role: 'ADMIN', createdAt: '2024-03-10' },
   ]);
 
   const [searchTerm, setSearchTerm] = useState('');
