@@ -27,8 +27,74 @@ function AdminAccountManagement() {
     password: '',
   });
 
+  const [errors, setErrors] = useState({
+    name: '',
+    email: '',
+    password: '',
+  });
+
   const handleSearchChange = (term) => {
     setSearchTerm(term.toLowerCase());
+  };
+
+  // Validation functions
+  const validateName = (name) => {
+    if (!name.trim()) return 'Name is required';
+    const words = name.trim().split(/\s+/);
+    for (const word of words) {
+      if (word.length < 2) return 'Each word must be at least 2 letters';
+    }
+    return '';
+  };
+
+  const validateEmail = (email) => {
+    if (!email.trim()) return 'Email is required';
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) return 'Invalid email format';
+    const [localPart, domain] = email.split('@');
+    if (localPart.length < 2) return 'Email must have at least 2 characters before the domain';
+    if (!domain || !domain.includes('.')) return 'Email must have a proper domain';
+    return '';
+  };
+
+  const validatePassword = (password) => {
+    if (!password) return 'Password is required';
+    if (password.length < 8) return 'Password must be at least 8 characters long';
+    if (!/[A-Z]/.test(password)) return 'Password must contain at least 1 capital letter';
+    if (!/[0-9]/.test(password)) return 'Password must contain at least 1 number';
+    if (!/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password)) return 'Password must contain at least 1 special character';
+    return '';
+  };
+
+  // Handle name input with auto-capitalization and character restrictions
+  const handleNameChange = (e) => {
+    let value = e.target.value;
+    
+    // Remove special characters and numbers
+    value = value.replace(/[^a-zA-Z\s]/g, '');
+    
+    // Auto-capitalize first letter of each word
+    value = value.split(' ').map(word => {
+      if (word.length === 0) return '';
+      return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+    }).join(' ');
+    
+    setFormData({ ...formData, name: value });
+    setErrors({ ...errors, name: validateName(value) });
+  };
+
+  // Handle email input
+  const handleEmailChange = (e) => {
+    const value = e.target.value;
+    setFormData({ ...formData, email: value });
+    setErrors({ ...errors, email: validateEmail(value) });
+  };
+
+  // Handle password input
+  const handlePasswordChange = (e) => {
+    const value = e.target.value;
+    setFormData({ ...formData, password: value });
+    setErrors({ ...errors, password: validatePassword(value) });
   };
 
   const filteredAdmins = useMemo(
@@ -41,6 +107,20 @@ function AdminAccountManagement() {
   );
 
   const handleAddAdmin = () => {
+    // Validate all fields
+    const nameError = validateName(formData.name);
+    const emailError = validateEmail(formData.email);
+    const passwordError = validatePassword(formData.password);
+    
+    if (nameError || emailError || passwordError) {
+      setErrors({
+        name: nameError,
+        email: emailError,
+        password: passwordError,
+      });
+      return;
+    }
+
     const newAdmin = {
       id: `ADM-${String(admins.length + 1).padStart(3, '0')}`,
       name: formData.name,
@@ -54,6 +134,7 @@ function AdminAccountManagement() {
     setAdmins([...admins, newAdmin]);
     setIsAddModalOpen(false);
     setFormData({ name: '', email: '', username: '', password: '' });
+    setErrors({ name: '', email: '', password: '' });
   };
 
   const handleEditAdmin = (admin) => {
@@ -248,18 +329,26 @@ function AdminAccountManagement() {
                 <input
                   type="text"
                   value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#143F81]"
+                  onChange={handleNameChange}
+                  className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-[#143F81] ${
+                    errors.name ? 'border-red-500' : 'border-gray-300'
+                  }`}
+                  placeholder="John Doe"
                 />
+                {errors.name && <p className="text-red-500 text-xs mt-1">{errors.name}</p>}
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
                 <input
                   type="email"
                   value={formData.email}
-                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#143F81]"
+                  onChange={handleEmailChange}
+                  className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-[#143F81] ${
+                    errors.email ? 'border-red-500' : 'border-gray-300'
+                  }`}
+                  placeholder="admin@example.com"
                 />
+                {errors.email && <p className="text-red-500 text-xs mt-1">{errors.email}</p>}
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Username</label>
@@ -268,6 +357,7 @@ function AdminAccountManagement() {
                   value={formData.username}
                   onChange={(e) => setFormData({ ...formData, username: e.target.value })}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#143F81]"
+                  placeholder="admin_user"
                 />
               </div>
               <div>
@@ -275,9 +365,13 @@ function AdminAccountManagement() {
                 <input
                   type="password"
                   value={formData.password}
-                  onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#143F81]"
+                  onChange={handlePasswordChange}
+                  className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-[#143F81] ${
+                    errors.password ? 'border-red-500' : 'border-gray-300'
+                  }`}
+                  placeholder="Enter password"
                 />
+                {errors.password && <p className="text-red-500 text-xs mt-1">{errors.password}</p>}
               </div>
             </div>
             <div className="mt-6 flex gap-2 justify-end">
@@ -286,6 +380,7 @@ function AdminAccountManagement() {
                 onClick={() => {
                   setIsAddModalOpen(false);
                   setFormData({ name: '', email: '', username: '', password: '' });
+                  setErrors({ name: '', email: '', password: '' });
                 }}
               >
                 Cancel
