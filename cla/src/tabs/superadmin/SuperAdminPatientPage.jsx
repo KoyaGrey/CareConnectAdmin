@@ -1,9 +1,10 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import AdminLayout from '../AdminLayout';
 import ArchiveModal from '../../component/ArchiveModal';
+import Pagination from '../../component/Pagination';
 
 function SuperAdminPatientPage() {
-  const [patients, setPatients] = useState([
+  const defaultPatients = [
     { id: 'PT-001', name: 'Zaldy Largo', status: 'Active', lastActive: 'Just now', type: 'patient' },
     { id: 'PT-002', name: 'Clint Fundano', status: 'Active', lastActive: 'Just now', type: 'patient' },
     { id: 'PT-003', name: 'Regan Pria', status: 'Active', lastActive: 'Just now', type: 'patient' },
@@ -11,10 +12,25 @@ function SuperAdminPatientPage() {
     { id: 'PT-005', name: 'Renz Lapera', status: 'Active', lastActive: 'Just now', type: 'patient' },
     { id: 'PT-006', name: 'Eduard Dula', status: 'Active', lastActive: 'Just now', type: 'patient' },
     { id: 'PT-007', name: 'Daniel Gutierrez', status: 'Active', lastActive: 'Just now', type: 'patient' },
-  ]);
+  ];
+
+  // Load from localStorage or use default
+  const [patients, setPatients] = useState(() => {
+    const stored = localStorage.getItem('patientsList');
+    if (stored) {
+      return JSON.parse(stored);
+    }
+    // Save default to localStorage on first load
+    localStorage.setItem('patientsList', JSON.stringify(defaultPatients));
+    return defaultPatients;
+  });
 
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedAccount, setSelectedAccount] = useState(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
+  const [statusFilter, setStatusFilter] = useState('All');
+  const [nameSort, setNameSort] = useState('asc');
   const [archiveModal, setArchiveModal] = useState({
     isOpen: false,
     title: '',
@@ -32,6 +48,11 @@ function SuperAdminPatientPage() {
       localStorage.setItem('archivedItems', JSON.stringify([...currentArchive, archivedItem]));
   };
 
+  // Save patients to localStorage whenever it changes
+  useEffect(() => {
+    localStorage.setItem('patientsList', JSON.stringify(patients));
+  }, [patients]);
+
   const handleDeletePatient = (id) => {
     const item = patients.find(p => p.id === id);
     setArchiveModal({
@@ -40,7 +61,9 @@ function SuperAdminPatientPage() {
       message: 'Are you sure you want to archive this patient account? This will move it to the archive list.',
       onConfirm: (reason) => {
         addToArchive(item, reason);
-        setPatients((prev) => prev.filter((p) => p.id !== id));
+        const updatedPatients = patients.filter((p) => p.id !== id);
+        setPatients(updatedPatients);
+        localStorage.setItem('patientsList', JSON.stringify(updatedPatients));
       },
     });
   };
@@ -50,13 +73,41 @@ function SuperAdminPatientPage() {
   };
 
   const filteredPatients = useMemo(
-    () =>
-      patients.filter((p) => {
+    () => {
+      const filtered = patients.filter((p) => {
         const haystack = `${p.name} ${p.id || ''}`.toLowerCase();
-        return haystack.includes(searchTerm);
-      }),
-    [patients, searchTerm]
+        const matchesSearch = haystack.includes(searchTerm);
+        const matchesStatus = statusFilter === 'All' || p.status === statusFilter;
+        return matchesSearch && matchesStatus;
+      });
+      
+      // Sort by name
+      const sorted = [...filtered].sort((a, b) => {
+        const nameA = a.name.toLowerCase();
+        const nameB = b.name.toLowerCase();
+        if (nameSort === 'asc') {
+          return nameA.localeCompare(nameB);
+        } else {
+          return nameB.localeCompare(nameA);
+        }
+      });
+      
+      return sorted;
+    },
+    [patients, searchTerm, statusFilter, nameSort]
   );
+
+  const paginatedPatients = useMemo(() => {
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const endIndex = startIndex + itemsPerPage;
+    return filteredPatients.slice(startIndex, endIndex);
+  }, [filteredPatients, currentPage, itemsPerPage]);
+
+  const totalPages = Math.ceil(filteredPatients.length / itemsPerPage);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, statusFilter, nameSort]);
 
 
   const openDetails = (account) => setSelectedAccount(account);
@@ -65,8 +116,37 @@ function SuperAdminPatientPage() {
   return (
     <AdminLayout pageTitle="Patients" onSearchChange={handleSearchChange}>
       <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
-        <div className="bg-[#143F81] px-6 py-4">
+        <div className="bg-[#143F81] px-6 py-4 flex justify-between items-center">
           <h2 className="text-white font-bold text-lg">Patient Accounts</h2>
+          <div className="flex items-center gap-2">
+            <label className="text-white text-sm font-medium">Filter by Status:</label>
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="px-3 py-1 rounded-lg text-sm border border-gray-300 focus:outline-none focus:ring-2 focus:ring-white text-white font-bold bg-[#143F81]"
+              style={{
+                color: 'white',
+                fontWeight: 'bold'
+              }}
+            >
+              <option value="All" className="text-white font-bold bg-[#143F81]">All</option>
+              <option value="Active" className="text-white font-bold bg-[#143F81]">Active</option>
+              <option value="Inactive" className="text-white font-bold bg-[#143F81]">Inactive</option>
+            </select>
+            <label className="text-white text-sm font-medium ml-2">Sort by Name:</label>
+            <select
+              value={nameSort}
+              onChange={(e) => setNameSort(e.target.value)}
+              className="px-3 py-1 rounded-lg text-sm border border-gray-300 focus:outline-none focus:ring-2 focus:ring-white text-white font-bold bg-[#143F81]"
+              style={{
+                color: 'white',
+                fontWeight: 'bold'
+              }}
+            >
+              <option value="asc" className="text-white font-bold bg-[#143F81]">Ascending</option>
+              <option value="desc" className="text-white font-bold bg-[#143F81]">Descending</option>
+            </select>
+          </div>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full">
@@ -79,7 +159,7 @@ function SuperAdminPatientPage() {
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {filteredPatients.map((patient) => (
+              {paginatedPatients.map((patient) => (
                 <tr key={patient.id} className="hover:bg-gray-50">
                   <td className="px-6 py-4 whitespace-nowrap">
                     <button
@@ -120,6 +200,19 @@ function SuperAdminPatientPage() {
             </tbody>
           </table>
         </div>
+        {filteredPatients.length > 0 && (
+          <Pagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            onPageChange={setCurrentPage}
+            itemsPerPage={itemsPerPage}
+            totalItems={filteredPatients.length}
+            onItemsPerPageChange={(newItemsPerPage) => {
+              setItemsPerPage(newItemsPerPage);
+              setCurrentPage(1);
+            }}
+          />
+        )}
       </div>
 
       {selectedAccount && (

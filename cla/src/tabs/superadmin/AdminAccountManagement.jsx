@@ -1,13 +1,39 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import AdminLayout from '../AdminLayout';
 import ArchiveModal from '../../component/ArchiveModal';
+import Pagination from '../../component/Pagination';
+import { EyeIcon, EyeSlashIcon } from "@heroicons/react/24/outline";
 
 function AdminAccountManagement() {
-  const [admins, setAdmins] = useState([
-    { id: 'ADM-001', name: 'Emman Dator', email: 'dator.emman@careconnect.com', username: 'adminemman', status: 'Active', lastActive: 'Just now', role: 'ADMIN', createdAt: '2024-01-15' },
-    { id: 'ADM-002', name: 'Majan Taganna', email: 'majan.taganna@careconnect.com', username: 'adminmajan', status: 'Active', lastActive: '1 hour ago', role: 'ADMIN', createdAt: '2024-02-20' },
-    { id: 'ADM-003', name: 'Clarissa Arzadon', email: 'cla.arzadon@careconnect.com', username: 'admincla', status: 'Inactive', lastActive: '3 days ago', role: 'ADMIN', createdAt: '2024-03-10' },
-  ]);
+  const defaultAdmins = [
+    { id: 'ADM-001', name: 'Emman Dator', email: 'dator.emman@gmail.com', username: 'adminemman', status: 'Active', lastActive: 'Just now', role: 'ADMIN', type: 'admin', createdAt: '2024-01-15' },
+    { id: 'ADM-002', name: 'Majan Taganna', email: 'majan.taganna@gmail.com', username: 'adminmajan', status: 'Active', lastActive: '1 hour ago', role: 'ADMIN', type: 'admin', createdAt: '2024-02-20' },
+    { id: 'ADM-003', name: 'Clarissa Arzadon', email: 'cla.arzadon@gmail.com', username: 'admincla', status: 'Inactive', lastActive: '3 days ago', role: 'ADMIN', type: 'admin', createdAt: '2024-03-10' },
+  ];
+
+  // Load from localStorage or use default, ensuring default admins are always present
+  const [admins, setAdmins] = useState(() => {
+    const stored = localStorage.getItem('adminsList');
+    if (stored) {
+      const storedAdmins = JSON.parse(stored);
+      // Check if default admins exist in stored data
+      const defaultAdminIds = defaultAdmins.map(a => a.id);
+      const hasAllDefaults = defaultAdminIds.every(id => storedAdmins.some(a => a.id === id));
+      
+      if (!hasAllDefaults) {
+        // Merge: add default admins that don't exist, keep existing ones
+        const existingIds = storedAdmins.map(a => a.id);
+        const missingDefaults = defaultAdmins.filter(a => !existingIds.includes(a.id));
+        const mergedAdmins = [...storedAdmins, ...missingDefaults];
+        localStorage.setItem('adminsList', JSON.stringify(mergedAdmins));
+        return mergedAdmins;
+      }
+      return storedAdmins;
+    }
+    // Save default to localStorage on first load
+    localStorage.setItem('adminsList', JSON.stringify(defaultAdmins));
+    return defaultAdmins;
+  });
 
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedAdmin, setSelectedAdmin] = useState(null);
@@ -25,19 +51,35 @@ function AdminAccountManagement() {
     email: '',
     username: '',
     password: '',
+    confirmPassword: '',
+    status: 'Active',
   });
 
   const [errors, setErrors] = useState({
     name: '',
     email: '',
+    username: '',
     password: '',
+    confirmPassword: '',
   });
+
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
+  const [statusFilter, setStatusFilter] = useState('All');
+  const [nameSort, setNameSort] = useState('asc'); // 'asc' or 'desc'
+
+  // Save admins to localStorage whenever it changes
+  useEffect(() => {
+    localStorage.setItem('adminsList', JSON.stringify(admins));
+  }, [admins]);
 
   const handleSearchChange = (term) => {
     setSearchTerm(term.toLowerCase());
   };
 
-  // Validation functions
+  // name validation
   const validateName = (name) => {
     if (!name.trim()) return 'Name is required';
     const words = name.trim().split(/\s+/);
@@ -54,6 +96,13 @@ function AdminAccountManagement() {
     const [localPart, domain] = email.split('@');
     if (localPart.length < 2) return 'Email must have at least 2 characters before the domain';
     if (!domain || !domain.includes('.')) return 'Email must have a proper domain';
+    
+    // Check if domain is one of the allowed domains
+    const allowedDomains = ['gmail.com', 'outlook.com', 'yahoo.com'];
+    if (!allowedDomains.includes(domain.toLowerCase())) {
+      return 'Email must be from @gmail.com, @outlook.com, or @yahoo.com';
+    }
+    
     return '';
   };
 
@@ -63,6 +112,17 @@ function AdminAccountManagement() {
     if (!/[A-Z]/.test(password)) return 'Password must contain at least 1 capital letter';
     if (!/[0-9]/.test(password)) return 'Password must contain at least 1 number';
     if (!/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password)) return 'Password must contain at least 1 special character';
+    return '';
+  };
+
+  const validateConfirmPassword = (confirmPassword, password) => {
+    if (!confirmPassword) return 'Please confirm your password';
+    if (confirmPassword !== password) return 'Passwords do not match';
+    return '';
+  };
+
+  const validateUsername = (username) => {
+    if (!username.trim()) return 'Username is required';
     return '';
   };
 
@@ -90,33 +150,85 @@ function AdminAccountManagement() {
     setErrors({ ...errors, email: validateEmail(value) });
   };
 
+  // Handle username input
+  const handleUsernameChange = (e) => {
+    const value = e.target.value;
+    setFormData({ ...formData, username: value });
+    setErrors({ ...errors, username: validateUsername(value) });
+  };
+
   // Handle password input
   const handlePasswordChange = (e) => {
     const value = e.target.value;
-    setFormData({ ...formData, password: value });
-    setErrors({ ...errors, password: validatePassword(value) });
+    const updatedFormData = { ...formData, password: value };
+    setFormData(updatedFormData);
+    setErrors({ 
+      ...errors, 
+      password: validatePassword(value),
+      confirmPassword: formData.confirmPassword ? validateConfirmPassword(formData.confirmPassword, value) : errors.confirmPassword
+    });
+  };
+
+  // Handle confirm password input
+  const handleConfirmPasswordChange = (e) => {
+    const value = e.target.value;
+    setFormData({ ...formData, confirmPassword: value });
+    setErrors({ ...errors, confirmPassword: validateConfirmPassword(value, formData.password) });
   };
 
   const filteredAdmins = useMemo(
-    () =>
-      admins.filter((admin) => {
+    () => {
+      const filtered = admins.filter((admin) => {
         const haystack = `${admin.name} ${admin.email} ${admin.username} ${admin.id}`.toLowerCase();
-        return haystack.includes(searchTerm);
-      }),
-    [admins, searchTerm]
+        const matchesSearch = haystack.includes(searchTerm);
+        const matchesStatus = statusFilter === 'All' || admin.status === statusFilter;
+        return matchesSearch && matchesStatus;
+      });
+      
+      // Sort by name
+      const sorted = [...filtered].sort((a, b) => {
+        const nameA = a.name.toLowerCase();
+        const nameB = b.name.toLowerCase();
+        if (nameSort === 'asc') {
+          return nameA.localeCompare(nameB);
+        } else {
+          return nameB.localeCompare(nameA);
+        }
+      });
+      
+      return sorted;
+    },
+    [admins, searchTerm, statusFilter, nameSort]
   );
+
+  const paginatedAdmins = useMemo(() => {
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const endIndex = startIndex + itemsPerPage;
+    return filteredAdmins.slice(startIndex, endIndex);
+  }, [filteredAdmins, currentPage, itemsPerPage]);
+
+  const totalPages = Math.ceil(filteredAdmins.length / itemsPerPage);
+
+  // Reset to page 1 when search term, filter, or sort changes
+  React.useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, statusFilter, nameSort]);
 
   const handleAddAdmin = () => {
     // Validate all fields
     const nameError = validateName(formData.name);
     const emailError = validateEmail(formData.email);
+    const usernameError = validateUsername(formData.username);
     const passwordError = validatePassword(formData.password);
+    const confirmPasswordError = validateConfirmPassword(formData.confirmPassword, formData.password);
     
-    if (nameError || emailError || passwordError) {
+    if (nameError || emailError || usernameError || passwordError || confirmPasswordError) {
       setErrors({
         name: nameError,
         email: emailError,
+        username: usernameError,
         password: passwordError,
+        confirmPassword: confirmPasswordError,
       });
       return;
     }
@@ -129,12 +241,17 @@ function AdminAccountManagement() {
       status: 'Active',
       lastActive: 'Just now',
       role: 'ADMIN',
+      type: 'admin',
       createdAt: new Date().toISOString().split('T')[0],
     };
-    setAdmins([...admins, newAdmin]);
+    const updatedAdmins = [...admins, newAdmin];
+    setAdmins(updatedAdmins);
+    localStorage.setItem('adminsList', JSON.stringify(updatedAdmins));
     setIsAddModalOpen(false);
-    setFormData({ name: '', email: '', username: '', password: '' });
-    setErrors({ name: '', email: '', password: '' });
+    setFormData({ name: '', email: '', username: '', password: '', confirmPassword: '', status: 'Active' });
+    setErrors({ name: '', email: '', username: '', password: '', confirmPassword: '' });
+    setShowPassword(false);
+    setShowConfirmPassword(false);
   };
 
   const handleEditAdmin = (admin) => {
@@ -144,19 +261,22 @@ function AdminAccountManagement() {
       email: admin.email,
       username: admin.username,
       password: '',
+      status: admin.status,
     });
     setIsEditModalOpen(true);
   };
 
   const handleUpdateAdmin = () => {
-    setAdmins(admins.map(admin => 
+    const updatedAdmins = admins.map(admin => 
       admin.id === selectedAdmin.id 
-        ? { ...admin, name: formData.name, email: formData.email, username: formData.username }
+        ? { ...admin, name: formData.name, email: formData.email, username: formData.username, status: formData.status }
         : admin
-    ));
+    );
+    setAdmins(updatedAdmins);
+    localStorage.setItem('adminsList', JSON.stringify(updatedAdmins));
     setIsEditModalOpen(false);
     setSelectedAdmin(null);
-    setFormData({ name: '', email: '', username: '', password: '' });
+    setFormData({ name: '', email: '', username: '', password: '', status: 'Active' });
   };
 
   const handleDeleteAdmin = (id) => {
@@ -168,12 +288,15 @@ function AdminAccountManagement() {
       onConfirm: (reason) => {
         const archivedItem = {
           ...admin,
+          type: admin.type || 'admin', // Ensure type is set
           reason,
           archivedAt: new Date().toISOString()
         };
         const currentArchive = JSON.parse(localStorage.getItem('archivedItems') || '[]');
         localStorage.setItem('archivedItems', JSON.stringify([...currentArchive, archivedItem]));
-        setAdmins(admins.filter(a => a.id !== id));
+        const updatedAdmins = admins.filter(a => a.id !== id);
+        setAdmins(updatedAdmins);
+        localStorage.setItem('adminsList', JSON.stringify(updatedAdmins));
       },
     });
   };
@@ -193,8 +316,37 @@ function AdminAccountManagement() {
       </div>
 
       <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
-        <div className="bg-[#143F81] px-6 py-4">
+        <div className="bg-[#143F81] px-6 py-4 flex justify-between items-center">
           <h2 className="text-white font-bold text-lg">Admin Accounts</h2>
+          <div className="flex items-center gap-2">
+            <label className="text-white text-sm font-medium">Filter by Status:</label>
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="px-3 py-1 rounded-lg text-sm border border-gray-300 focus:outline-none focus:ring-2 focus:ring-white text-white font-bold bg-[#143F81]"
+              style={{
+                color: 'white',
+                fontWeight: 'bold'
+              }}
+            >
+              <option value="All" className="text-white font-bold bg-[#143F81]">All</option>
+              <option value="Active" className="text-white font-bold bg-[#143F81]">Active</option>
+              <option value="Inactive" className="text-white font-bold bg-[#143F81]">Inactive</option>
+            </select>
+            <label className="text-white text-sm font-medium ml-2">Sort by Name:</label>
+            <select
+              value={nameSort}
+              onChange={(e) => setNameSort(e.target.value)}
+              className="px-3 py-1 rounded-lg text-sm border border-gray-300 focus:outline-none focus:ring-2 focus:ring-white text-white font-bold bg-[#143F81]"
+              style={{
+                color: 'white',
+                fontWeight: 'bold'
+              }}
+            >
+              <option value="asc" className="text-white font-bold bg-[#143F81]">Ascending</option>
+              <option value="desc" className="text-white font-bold bg-[#143F81]">Descending</option>
+            </select>
+          </div>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full">
@@ -209,7 +361,7 @@ function AdminAccountManagement() {
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {filteredAdmins.map((admin) => (
+              {paginatedAdmins.map((admin) => (
                 <tr key={admin.id} className="hover:bg-gray-50">
                   <td className="px-6 py-4 whitespace-nowrap">
                     <button
@@ -261,6 +413,19 @@ function AdminAccountManagement() {
             </tbody>
           </table>
         </div>
+        {filteredAdmins.length > 0 && (
+          <Pagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            onPageChange={setCurrentPage}
+            itemsPerPage={itemsPerPage}
+            totalItems={filteredAdmins.length}
+            onItemsPerPageChange={(newItemsPerPage) => {
+              setItemsPerPage(newItemsPerPage);
+              setCurrentPage(1);
+            }}
+          />
+        )}
       </div>
 
       {/* Admin Details Modal */}
@@ -333,7 +498,7 @@ function AdminAccountManagement() {
                   className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-[#143F81] ${
                     errors.name ? 'border-red-500' : 'border-gray-300'
                   }`}
-                  placeholder="John Doe"
+                  placeholder="Juan Dela Cruz"
                 />
                 {errors.name && <p className="text-red-500 text-xs mt-1">{errors.name}</p>}
               </div>
@@ -346,7 +511,7 @@ function AdminAccountManagement() {
                   className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-[#143F81] ${
                     errors.email ? 'border-red-500' : 'border-gray-300'
                   }`}
-                  placeholder="admin@example.com"
+                  placeholder="admin@gmail.com"
                 />
                 {errors.email && <p className="text-red-500 text-xs mt-1">{errors.email}</p>}
               </div>
@@ -355,23 +520,65 @@ function AdminAccountManagement() {
                 <input
                   type="text"
                   value={formData.username}
-                  onChange={(e) => setFormData({ ...formData, username: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#143F81]"
-                  placeholder="admin_user"
+                  onChange={handleUsernameChange}
+                  className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-[#143F81] ${
+                    errors.username ? 'border-red-500' : 'border-gray-300'
+                  }`}
+                  placeholder="adminjuan"
                 />
+                {errors.username && <p className="text-red-500 text-xs mt-1">{errors.username}</p>}
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
-                <input
-                  type="password"
-                  value={formData.password}
-                  onChange={handlePasswordChange}
-                  className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-[#143F81] ${
-                    errors.password ? 'border-red-500' : 'border-gray-300'
-                  }`}
-                  placeholder="Enter password"
-                />
+                <div className="relative">
+                  <input
+                    type={showPassword ? "text" : "password"}
+                    value={formData.password}
+                    onChange={handlePasswordChange}
+                    className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-[#143F81] ${
+                      errors.password ? 'border-red-500' : 'border-gray-300'
+                    }`}
+                    placeholder="Enter password"
+                  />
+                  <button 
+                    type="button" 
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2"
+                  >
+                    {showPassword ? (
+                      <EyeSlashIcon className="w-5 h-5 text-gray-600" />
+                    ) : (
+                      <EyeIcon className="w-5 h-5 text-gray-600" />
+                    )}
+                  </button>
+                </div>
                 {errors.password && <p className="text-red-500 text-xs mt-1">{errors.password}</p>}
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Confirm Password</label>
+                <div className="relative">
+                  <input
+                    type={showConfirmPassword ? "text" : "password"}
+                    value={formData.confirmPassword}
+                    onChange={handleConfirmPasswordChange}
+                    className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-[#143F81] ${
+                      errors.confirmPassword ? 'border-red-500' : 'border-gray-300'
+                    }`}
+                    placeholder="Confirm password"
+                  />
+                  <button 
+                    type="button" 
+                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2"
+                  >
+                    {showConfirmPassword ? (
+                      <EyeSlashIcon className="w-5 h-5 text-gray-600" />
+                    ) : (
+                      <EyeIcon className="w-5 h-5 text-gray-600" />
+                    )}
+                  </button>
+                </div>
+                {errors.confirmPassword && <p className="text-red-500 text-xs mt-1">{errors.confirmPassword}</p>}
               </div>
             </div>
             <div className="mt-6 flex gap-2 justify-end">
@@ -379,8 +586,10 @@ function AdminAccountManagement() {
                 className="px-4 py-2 rounded-lg bg-gray-200 text-gray-700 text-sm font-medium hover:bg-gray-300"
                 onClick={() => {
                   setIsAddModalOpen(false);
-                  setFormData({ name: '', email: '', username: '', password: '' });
-                  setErrors({ name: '', email: '', password: '' });
+                  setFormData({ name: '', email: '', username: '', password: '', confirmPassword: '' });
+                  setErrors({ name: '', email: '', username: '', password: '', confirmPassword: '' });
+                  setShowPassword(false);
+                  setShowConfirmPassword(false);
                 }}
               >
                 Cancel
@@ -438,6 +647,17 @@ function AdminAccountManagement() {
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#143F81]"
                 />
               </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
+                <select
+                  value={formData.status}
+                  onChange={(e) => setFormData({ ...formData, status: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#143F81]"
+                >
+                  <option value="Active">Active</option>
+                  <option value="Inactive">Inactive</option>
+                </select>
+              </div>
             </div>
             <div className="mt-6 flex gap-2 justify-end">
               <button
@@ -445,7 +665,7 @@ function AdminAccountManagement() {
                 onClick={() => {
                   setIsEditModalOpen(false);
                   setSelectedAdmin(null);
-                  setFormData({ name: '', email: '', username: '', password: '' });
+                  setFormData({ name: '', email: '', username: '', password: '', status: 'Active' });
                 }}
               >
                 Cancel

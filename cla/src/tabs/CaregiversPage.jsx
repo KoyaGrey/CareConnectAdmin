@@ -1,20 +1,36 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import AdminLayout from './AdminLayout';
 import ArchiveModal from '../component/ArchiveModal';
+import Pagination from '../component/Pagination';
 
 function CaregiversPage() {
-  const [caregivers, setCaregivers] = useState([
-    { id: 'CG-001', name: 'Sarah Johnson', email: 'sarah.j@careconnect.com', status: 'Active', lastActive: 'Just now', assignedPatient: 'Zaldy Largo', type: 'caregiver' },
-    { id: 'CG-002', name: 'Michael Zaldivar', email: 'michael.z@careconnect.com', status: 'Active', lastActive: 'Just now', assignedPatient: 'Clint Fundano', type: 'caregiver' },
-    { id: 'CG-003', name: 'Ronald Mingoy', email: 'ronald.m@careconnect.com', status: 'Active', lastActive: 'Just now', assignedPatient: 'Regan Pria', type: 'caregiver' },
-    { id: 'CG-004', name: 'Jacob Manuel', email: 'jacob.m@careconnect.com', status: 'Inactive', lastActive: '2 days ago', assignedPatient: 'Rennel Bontilao', type: 'caregiver' },
-    { id: 'CG-005', name: 'Robert Altares', email: 'robert.a@careconnect.com', status: 'Active', lastActive: 'Just now', assignedPatient: 'Renz Lapera', type: 'caregiver' },
-    { id: 'CG-006', name: 'Raymund Padon', email: 'raymund.p@careconnect.com', status: 'Active', lastActive: 'Just now', assignedPatient: 'Eduard Dula', type: 'caregiver' },
-    { id: 'CG-007', name: 'James Largo', email: 'james.l@careconnect.com', status: 'Active', lastActive: 'Just now', assignedPatient: 'Daniel Gutierrez', type: 'caregiver' },
-  ]);
+  const defaultCaregivers = [
+    { id: 'CG-001', name: 'Sarah Johnson', email: 'sarah.j@gmail.com', status: 'Active', lastActive: 'Just now', assignedPatient: 'Zaldy Largo', type: 'caregiver' },
+    { id: 'CG-002', name: 'Michael Zaldivar', email: 'michael.z@gmail.com', status: 'Active', lastActive: 'Just now', assignedPatient: 'Clint Fundano', type: 'caregiver' },
+    { id: 'CG-003', name: 'Ronald Mingoy', email: 'ronald.m@gmail.com', status: 'Active', lastActive: 'Just now', assignedPatient: 'Regan Pria', type: 'caregiver' },
+    { id: 'CG-004', name: 'Jacob Manuel', email: 'jacob.m@gmail.com', status: 'Inactive', lastActive: '2 days ago', assignedPatient: 'Rennel Bontilao', type: 'caregiver' },
+    { id: 'CG-005', name: 'Robert Altares', email: 'robert.a@gmail.com', status: 'Active', lastActive: 'Just now', assignedPatient: 'Renz Lapera', type: 'caregiver' },
+    { id: 'CG-006', name: 'Raymund Padon', email: 'raymund.p@gmail.com', status: 'Active', lastActive: 'Just now', assignedPatient: 'Eduard Dula', type: 'caregiver' },
+    { id: 'CG-007', name: 'James Largo', email: 'james.l@gmail.com', status: 'Active', lastActive: 'Just now', assignedPatient: 'Daniel Gutierrez', type: 'caregiver' },
+  ];
+
+  // Load from localStorage or use default
+  const [caregivers, setCaregivers] = useState(() => {
+    const stored = localStorage.getItem('caregiversList');
+    if (stored) {
+      return JSON.parse(stored);
+    }
+    // Save default to localStorage on first load
+    localStorage.setItem('caregiversList', JSON.stringify(defaultCaregivers));
+    return defaultCaregivers;
+  });
 
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedAccount, setSelectedAccount] = useState(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
+  const [statusFilter, setStatusFilter] = useState('All');
+  const [nameSort, setNameSort] = useState('asc');
   const [archiveModal, setArchiveModal] = useState({
     isOpen: false,
     title: '',
@@ -36,14 +52,47 @@ function CaregiversPage() {
       localStorage.setItem('archivedItems', JSON.stringify([...currentArchive, archivedItem]));
   };
 
+  // Save caregivers to localStorage whenever it changes
+  useEffect(() => {
+    localStorage.setItem('caregiversList', JSON.stringify(caregivers));
+  }, [caregivers]);
+
   const filteredCaregivers = useMemo(
-    () =>
-      caregivers.filter((c) => {
+    () => {
+      const filtered = caregivers.filter((c) => {
         const haystack = `${c.name} ${c.email} ${c.id} ${c.assignedPatient}`.toLowerCase();
-        return haystack.includes(searchTerm);
-      }),
-    [caregivers, searchTerm]
+        const matchesSearch = haystack.includes(searchTerm);
+        const matchesStatus = statusFilter === 'All' || c.status === statusFilter;
+        return matchesSearch && matchesStatus;
+      });
+      
+      // Sort by name
+      const sorted = [...filtered].sort((a, b) => {
+        const nameA = a.name.toLowerCase();
+        const nameB = b.name.toLowerCase();
+        if (nameSort === 'asc') {
+          return nameA.localeCompare(nameB);
+        } else {
+          return nameB.localeCompare(nameA);
+        }
+      });
+      
+      return sorted;
+    },
+    [caregivers, searchTerm, statusFilter, nameSort]
   );
+
+  const paginatedCaregivers = useMemo(() => {
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const endIndex = startIndex + itemsPerPage;
+    return filteredCaregivers.slice(startIndex, endIndex);
+  }, [filteredCaregivers, currentPage, itemsPerPage]);
+
+  const totalPages = Math.ceil(filteredCaregivers.length / itemsPerPage);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, statusFilter, nameSort]);
 
   const handleDeleteCaregiver = (id) => {
     const item = caregivers.find(c => c.id === id);
@@ -53,7 +102,9 @@ function CaregiversPage() {
       message: 'Are you sure you want to archive this caregiver account? This will move it to the archive list.',
       onConfirm: (reason) => {
         addToArchive(item, reason);
-        setCaregivers((prev) => prev.filter((c) => c.id !== id));
+        const updatedCaregivers = caregivers.filter((c) => c.id !== id);
+        setCaregivers(updatedCaregivers);
+        localStorage.setItem('caregiversList', JSON.stringify(updatedCaregivers));
       },
     });
   };
@@ -64,8 +115,37 @@ function CaregiversPage() {
   return (
     <AdminLayout pageTitle="Caregivers" onSearchChange={handleSearchChange}>
       <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
-        <div className="bg-[#143F81] px-6 py-4">
+        <div className="bg-[#143F81] px-6 py-4 flex justify-between items-center">
           <h2 className="text-white font-bold text-lg">Caregiver Accounts</h2>
+          <div className="flex items-center gap-2">
+            <label className="text-white text-sm font-medium">Filter by Status:</label>
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="px-3 py-1 rounded-lg text-sm border border-gray-300 focus:outline-none focus:ring-2 focus:ring-white text-white font-bold bg-[#143F81]"
+              style={{
+                color: 'white',
+                fontWeight: 'bold'
+              }}
+            >
+              <option value="All" className="text-white font-bold bg-[#143F81]">All</option>
+              <option value="Active" className="text-white font-bold bg-[#143F81]">Active</option>
+              <option value="Inactive" className="text-white font-bold bg-[#143F81]">Inactive</option>
+            </select>
+            <label className="text-white text-sm font-medium ml-2">Sort by Name:</label>
+            <select
+              value={nameSort}
+              onChange={(e) => setNameSort(e.target.value)}
+              className="px-3 py-1 rounded-lg text-sm border border-gray-300 focus:outline-none focus:ring-2 focus:ring-white text-white font-bold bg-[#143F81]"
+              style={{
+                color: 'white',
+                fontWeight: 'bold'
+              }}
+            >
+              <option value="asc" className="text-white font-bold bg-[#143F81]">Ascending</option>
+              <option value="desc" className="text-white font-bold bg-[#143F81]">Descending</option>
+            </select>
+          </div>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full">
@@ -78,7 +158,7 @@ function CaregiversPage() {
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {filteredCaregivers.map((caregiver) => (
+              {paginatedCaregivers.map((caregiver) => (
                 <tr key={caregiver.id} className="hover:bg-gray-50">
                   <td className="px-6 py-4 whitespace-nowrap">
                     <button
@@ -119,6 +199,19 @@ function CaregiversPage() {
             </tbody>
           </table>
         </div>
+        {filteredCaregivers.length > 0 && (
+          <Pagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            onPageChange={setCurrentPage}
+            itemsPerPage={itemsPerPage}
+            totalItems={filteredCaregivers.length}
+            onItemsPerPageChange={(newItemsPerPage) => {
+              setItemsPerPage(newItemsPerPage);
+              setCurrentPage(1);
+            }}
+          />
+        )}
       </div>
 
       {selectedAccount && (

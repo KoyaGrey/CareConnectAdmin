@@ -35,7 +35,7 @@ function AdminLayout({
     if (onSearchChange) onSearchChange(value);
   };
 
-  const handleProfileClick = () => {
+  const handleProfileClick = () => {d
     setIsProfileModalOpen(true);
     setIsAccountMenuOpen(false);
   };
@@ -158,7 +158,7 @@ function AdminLayout({
               className="w-10 h-10 bg-[#143F81] rounded-full flex items-center justify-center text-white font-bold relative"
           
           >
-              AD
+              {role === ROLES.SUPER_ADMIN ? 'SA' : 'AD'}
             </button>
 
             {isAccountMenuOpen && (

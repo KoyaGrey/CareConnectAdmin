@@ -1,11 +1,10 @@
 import React, { useState } from 'react';
-import { ShowPasswordIcon, HidePasswordIcon } from '../component/svg/PasswordIcon';
 import { Link, useNavigate } from 'react-router-dom';
 import { authenticate, setUserRole, ROLES } from '../utils/auth';
+import { EyeIcon, EyeSlashIcon } from "@heroicons/react/24/outline";
 
 function Login() {
     const navigate = useNavigate();
-    const [showPassword, setShowPassword] = useState(false);
 
     const [formData, setFormData] = useState({
         username: '',
@@ -13,6 +12,7 @@ function Login() {
     });
 
     const [errors, setErrors] = useState({});
+    const [showPassword, setShowPassword] = useState(false);
 
     const validateField = (name, value) => {
         if (name === 'username') {
@@ -109,16 +109,16 @@ function Login() {
                         onChange={handleChange}
                         className="px-5 py-4 rounded-xl outline-none bg-white w-full placeholder-black/50 font-bold"
                     />
-
-                    <button
-                        type="button"
+                    <button 
+                        type="button" 
                         onClick={() => setShowPassword(!showPassword)}
-                        className="absolute right-2 top-1/2 -translate-y-1/2"
+                        className="absolute right-3 top-1/2 -translate-y-1/2"
                     >
                         {showPassword ? (
-                            <HidePasswordIcon className="w-6 h-6 text-gray-700" />
+                            <EyeSlashIcon className="w-5 h-5" />
+                            
                         ) : (
-                            <ShowPasswordIcon className="w-6 h-6 text-gray-700" />
+                            <EyeIcon className="w-5 h-5" />
                         )}
                     </button>
                 </div>

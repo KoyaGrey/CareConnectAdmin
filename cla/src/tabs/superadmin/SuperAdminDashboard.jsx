@@ -1,19 +1,19 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import AdminLayout from '../AdminLayout';
 import ArchiveModal from '../../component/ArchiveModal';
 
 function SuperAdminDashboard() {
-  const [caregivers, setCaregivers] = useState([
-    { id: 'CG-001', name: 'Sarah Johnson', email: 'sarah.j@careconnect.com', status: 'Active', lastActive: 'Just now', assignedPatient: 'Zaldy Largo', type: 'caregiver' },
-    { id: 'CG-002', name: 'Michael Zaldivar', email: 'michael.z@careconnect.com', status: 'Active', lastActive: 'Just now', assignedPatient: 'Clint Fundano', type: 'caregiver' },
-    { id: 'CG-003', name: 'Ronald Mingoy', email: 'ronald.m@careconnect.com', status: 'Active', lastActive: 'Just now', assignedPatient: 'Regan Pria', type: 'caregiver' },
-    { id: 'CG-004', name: 'Jacob Manuel', email: 'jacob.m@careconnect.com', status: 'Inactive', lastActive: '2 days ago', assignedPatient: 'Rennel Bontilao', type: 'caregiver' },
-    { id: 'CG-005', name: 'Robert Altares', email: 'robert.a@careconnect.com', status: 'Active', lastActive: 'Just now', assignedPatient: 'Renz Lapera', type: 'caregiver' },
-    { id: 'CG-006', name: 'Raymund Padon', email: 'raymund.p@careconnect.com', status: 'Active', lastActive: 'Just now', assignedPatient: 'Eduard Dula', type: 'caregiver' },
-    { id: 'CG-007', name: 'James Largo', email: 'james.l@careconnect.com', status: 'Active', lastActive: 'Just now', assignedPatient: 'Daniel Gutierrez', type: 'caregiver' },
-  ]);
+  const defaultCaregivers = [
+    { id: 'CG-001', name: 'Sarah Johnson', email: 'sarah.j@gmail.com', status: 'Active', lastActive: 'Just now', assignedPatient: 'Zaldy Largo', type: 'caregiver' },
+    { id: 'CG-002', name: 'Michael Zaldivar', email: 'michael.z@gmail.com', status: 'Active', lastActive: 'Just now', assignedPatient: 'Clint Fundano', type: 'caregiver' },
+    { id: 'CG-003', name: 'Ronald Mingoy', email: 'ronald.m@gmail.com', status: 'Active', lastActive: 'Just now', assignedPatient: 'Regan Pria', type: 'caregiver' },
+    { id: 'CG-004', name: 'Jacob Manuel', email: 'jacob.m@gmail.com', status: 'Inactive', lastActive: '2 days ago', assignedPatient: 'Rennel Bontilao', type: 'caregiver' },
+    { id: 'CG-005', name: 'Robert Altares', email: 'robert.a@gmail.com', status: 'Active', lastActive: 'Just now', assignedPatient: 'Renz Lapera', type: 'caregiver' },
+    { id: 'CG-006', name: 'Raymund Padon', email: 'raymund.p@gmail.com', status: 'Active', lastActive: 'Just now', assignedPatient: 'Eduard Dula', type: 'caregiver' },
+    { id: 'CG-007', name: 'James Largo', email: 'james.l@gmail.com', status: 'Active', lastActive: 'Just now', assignedPatient: 'Daniel Gutierrez', type: 'caregiver' },
+  ];
 
-  const [patients, setPatients] = useState([
+  const defaultPatients = [
     { id: 'PT-001', name: 'Zaldy Largo', status: 'Active', lastActive: 'Just now', type: 'patient' },
     { id: 'PT-002', name: 'Clint Fundano', status: 'Active', lastActive: 'Just now', type: 'patient' },
     { id: 'PT-003', name: 'Regan Pria', status: 'Active', lastActive: 'Just now', type: 'patient' },
@@ -21,7 +21,54 @@ function SuperAdminDashboard() {
     { id: 'PT-005', name: 'Renz Lapera', status: 'Active', lastActive: 'Just now', type: 'patient' },
     { id: 'PT-006', name: 'Eduard Dula', status: 'Active', lastActive: 'Just now', type: 'patient' },
     { id: 'PT-007', name: 'Daniel Gutierrez', status: 'Active', lastActive: 'Just now', type: 'patient' },
-  ]);
+  ];
+
+  // Load from localStorage or use default
+  const [caregivers, setCaregivers] = useState(() => {
+    const stored = localStorage.getItem('caregiversList');
+    if (stored) {
+      return JSON.parse(stored);
+    }
+    localStorage.setItem('caregiversList', JSON.stringify(defaultCaregivers));
+    return defaultCaregivers;
+  });
+
+  const [patients, setPatients] = useState(() => {
+    const stored = localStorage.getItem('patientsList');
+    if (stored) {
+      return JSON.parse(stored);
+    }
+    localStorage.setItem('patientsList', JSON.stringify(defaultPatients));
+    return defaultPatients;
+  });
+
+  // Reload from localStorage when component mounts, when storage changes, or when window regains focus
+  useEffect(() => {
+    const handleStorageChange = () => {
+      const storedCaregivers = localStorage.getItem('caregiversList');
+      const storedPatients = localStorage.getItem('patientsList');
+      if (storedCaregivers) {
+        setCaregivers(JSON.parse(storedCaregivers));
+      }
+      if (storedPatients) {
+        setPatients(JSON.parse(storedPatients));
+      }
+    };
+
+    // Listen for storage events (when other tabs update localStorage)
+    window.addEventListener('storage', handleStorageChange);
+    
+    // Reload when window regains focus (e.g., when navigating back from archive page)
+    window.addEventListener('focus', handleStorageChange);
+    
+    // Also check on mount
+    handleStorageChange();
+
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+      window.removeEventListener('focus', handleStorageChange);
+    };
+  }, []);
 
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedAccount, setSelectedAccount] = useState(null); // for read-only details modal
@@ -72,7 +119,9 @@ function SuperAdminDashboard() {
       message: 'Are you sure you want to archive this caregiver account? This will move it to the archive list.',
       onConfirm: (reason) => {
         addToArchive(item, reason);
-        setCaregivers((prev) => prev.filter((c) => c.id !== id));
+        const updatedCaregivers = caregivers.filter((c) => c.id !== id);
+        setCaregivers(updatedCaregivers);
+        localStorage.setItem('caregiversList', JSON.stringify(updatedCaregivers));
       },
     });
   };
@@ -85,7 +134,9 @@ function SuperAdminDashboard() {
       message: 'Are you sure you want to archive this patient account? This will move it to the archive list.',
       onConfirm: (reason) => {
         addToArchive(item, reason);
-        setPatients((prev) => prev.filter((p) => p.id !== id));
+        const updatedPatients = patients.filter((p) => p.id !== id);
+        setPatients(updatedPatients);
+        localStorage.setItem('patientsList', JSON.stringify(updatedPatients));
       },
     });
   };
