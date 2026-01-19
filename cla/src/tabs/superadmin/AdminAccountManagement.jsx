@@ -2,38 +2,15 @@ import React, { useState, useMemo, useEffect } from 'react';
 import AdminLayout from '../AdminLayout';
 import ArchiveModal from '../../component/ArchiveModal';
 import Pagination from '../../component/Pagination';
+import ErrorModal from '../../component/ErrorModal';
+import SuccessModal from '../../component/SuccessModal';
 import { EyeIcon, EyeSlashIcon } from "@heroicons/react/24/outline";
+import { getAdmins, addAdmin, updateAdmin, archiveAdmin, initializeSuperAdmin } from '../../utils/firestoreService';
 
 function AdminAccountManagement() {
-  const defaultAdmins = [
-    { id: 'ADM-001', name: 'Emman Dator', email: 'dator.emman@gmail.com', username: 'adminemman', status: 'Active', lastActive: 'Just now', role: 'ADMIN', type: 'admin', createdAt: '2024-01-15' },
-    { id: 'ADM-002', name: 'Majan Taganna', email: 'majan.taganna@gmail.com', username: 'adminmajan', status: 'Active', lastActive: '1 hour ago', role: 'ADMIN', type: 'admin', createdAt: '2024-02-20' },
-    { id: 'ADM-003', name: 'Clarissa Arzadon', email: 'cla.arzadon@gmail.com', username: 'admincla', status: 'Inactive', lastActive: '3 days ago', role: 'ADMIN', type: 'admin', createdAt: '2024-03-10' },
-  ];
-
-  // Load from localStorage or use default, ensuring default admins are always present
-  const [admins, setAdmins] = useState(() => {
-    const stored = localStorage.getItem('adminsList');
-    if (stored) {
-      const storedAdmins = JSON.parse(stored);
-      // Check if default admins exist in stored data
-      const defaultAdminIds = defaultAdmins.map(a => a.id);
-      const hasAllDefaults = defaultAdminIds.every(id => storedAdmins.some(a => a.id === id));
-      
-      if (!hasAllDefaults) {
-        // Merge: add default admins that don't exist, keep existing ones
-        const existingIds = storedAdmins.map(a => a.id);
-        const missingDefaults = defaultAdmins.filter(a => !existingIds.includes(a.id));
-        const mergedAdmins = [...storedAdmins, ...missingDefaults];
-        localStorage.setItem('adminsList', JSON.stringify(mergedAdmins));
-        return mergedAdmins;
-      }
-      return storedAdmins;
-    }
-    // Save default to localStorage on first load
-    localStorage.setItem('adminsList', JSON.stringify(defaultAdmins));
-    return defaultAdmins;
-  });
+  const [admins, setAdmins] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedAdmin, setSelectedAdmin] = useState(null);
@@ -69,11 +46,39 @@ function AdminAccountManagement() {
   const [itemsPerPage, setItemsPerPage] = useState(10);
   const [statusFilter, setStatusFilter] = useState('All');
   const [nameSort, setNameSort] = useState('asc'); // 'asc' or 'desc'
+  const [errorModal, setErrorModal] = useState({
+    isOpen: false,
+    title: '',
+    message: ''
+  });
+  const [successModal, setSuccessModal] = useState({
+    isOpen: false,
+    title: '',
+    message: ''
+  });
 
-  // Save admins to localStorage whenever it changes
+  // Fetch admins from Firestore on component mount
+  // Also initialize super admin if it doesn't exist
   useEffect(() => {
-    localStorage.setItem('adminsList', JSON.stringify(admins));
-  }, [admins]);
+    const fetchAdmins = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        // Initialize super admin first
+        await initializeSuperAdmin();
+        // Fetch admins (super admin is automatically filtered out)
+        const data = await getAdmins();
+        setAdmins(data);
+      } catch (err) {
+        console.error('Error fetching admins:', err);
+        setError('Failed to load admin accounts. Please check your Firebase connection.');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchAdmins();
+  }, []);
 
   const handleSearchChange = (term) => {
     setSearchTerm(term.toLowerCase());
@@ -214,7 +219,7 @@ function AdminAccountManagement() {
     setCurrentPage(1);
   }, [searchTerm, statusFilter, nameSort]);
 
-  const handleAddAdmin = () => {
+  const handleAddAdmin = async () => {
     // Validate all fields
     const nameError = validateName(formData.name);
     const emailError = validateEmail(formData.email);
@@ -233,25 +238,81 @@ function AdminAccountManagement() {
       return;
     }
 
-    const newAdmin = {
-      id: `ADM-${String(admins.length + 1).padStart(3, '0')}`,
-      name: formData.name,
-      email: formData.email,
-      username: formData.username,
-      status: 'Active',
-      lastActive: 'Just now',
-      role: 'ADMIN',
-      type: 'admin',
-      createdAt: new Date().toISOString().split('T')[0],
-    };
-    const updatedAdmins = [...admins, newAdmin];
-    setAdmins(updatedAdmins);
-    localStorage.setItem('adminsList', JSON.stringify(updatedAdmins));
-    setIsAddModalOpen(false);
-    setFormData({ name: '', email: '', username: '', password: '', confirmPassword: '', status: 'Active' });
-    setErrors({ name: '', email: '', username: '', password: '', confirmPassword: '' });
-    setShowPassword(false);
-    setShowConfirmPassword(false);
+    // Check for duplicates before adding
+    const duplicateName = admins.find(admin => 
+      admin.name && admin.name.toLowerCase().trim() === formData.name.toLowerCase().trim()
+    );
+    const duplicateUsername = admins.find(admin => 
+      admin.username && admin.username.toLowerCase() === formData.username.toLowerCase()
+    );
+    const duplicateEmail = admins.find(admin => 
+      admin.email && admin.email.toLowerCase() === formData.email.toLowerCase()
+    );
+
+    if (duplicateName) {
+      setErrorModal({
+        isOpen: true,
+        title: 'Duplicate Full Name',
+        message: `Full name "${formData.name}" already exists. Please use a different name.`
+      });
+      setErrors(prev => ({ ...prev, name: 'Full name already exists' }));
+      return;
+    }
+
+    if (duplicateUsername) {
+      setErrorModal({
+        isOpen: true,
+        title: 'Duplicate Username',
+        message: `Username "${formData.username}" already exists. Please choose a different username.`
+      });
+      setErrors(prev => ({ ...prev, username: 'Username already exists' }));
+      return;
+    }
+
+    if (duplicateEmail) {
+      setErrorModal({
+        isOpen: true,
+        title: 'Duplicate Email',
+        message: `Email "${formData.email}" is already in use. Please use a different email address.`
+      });
+      setErrors(prev => ({ ...prev, email: 'Email already exists' }));
+      return;
+    }
+
+    try {
+      // Add admin to Firestore
+      await addAdmin({
+        name: formData.name,
+        email: formData.email,
+        username: formData.username,
+        password: formData.password
+      });
+      
+      // Refresh the list
+      const data = await getAdmins();
+      setAdmins(data);
+      
+      // Close modal and reset form
+      setIsAddModalOpen(false);
+      setFormData({ name: '', email: '', username: '', password: '', confirmPassword: '', status: 'Active' });
+      setErrors({ name: '', email: '', username: '', password: '', confirmPassword: '' });
+      setShowPassword(false);
+      setShowConfirmPassword(false);
+      
+      // Show success modal
+      setSuccessModal({
+        isOpen: true,
+        title: 'Admin Added',
+        message: `Admin account "${formData.name}" has been created successfully!`
+      });
+    } catch (err) {
+      console.error('Error adding admin:', err);
+      setErrorModal({
+        isOpen: true,
+        title: 'Failed to Add Admin',
+        message: err.message || 'Failed to add admin. Please try again.'
+      });
+    }
   };
 
   const handleEditAdmin = (admin) => {
@@ -266,17 +327,44 @@ function AdminAccountManagement() {
     setIsEditModalOpen(true);
   };
 
-  const handleUpdateAdmin = () => {
-    const updatedAdmins = admins.map(admin => 
-      admin.id === selectedAdmin.id 
-        ? { ...admin, name: formData.name, email: formData.email, username: formData.username, status: formData.status }
-        : admin
-    );
-    setAdmins(updatedAdmins);
-    localStorage.setItem('adminsList', JSON.stringify(updatedAdmins));
-    setIsEditModalOpen(false);
-    setSelectedAdmin(null);
-    setFormData({ name: '', email: '', username: '', password: '', status: 'Active' });
+  const handleUpdateAdmin = async () => {
+    try {
+      const updates = {
+        name: formData.name,
+        email: formData.email,
+        username: formData.username,
+        status: formData.status
+      };
+      
+      // Only update password if provided
+      if (formData.password) {
+        updates.password = formData.password;
+      }
+      
+      await updateAdmin(selectedAdmin.id, updates);
+      
+      // Refresh the list
+      const data = await getAdmins();
+      setAdmins(data);
+      
+      setIsEditModalOpen(false);
+      setSelectedAdmin(null);
+      setFormData({ name: '', email: '', username: '', password: '', status: 'Active' });
+      
+      // Show success modal
+      setSuccessModal({
+        isOpen: true,
+        title: 'Admin Updated',
+        message: `Admin account has been updated successfully!`
+      });
+    } catch (err) {
+      console.error('Error updating admin:', err);
+      setErrorModal({
+        isOpen: true,
+        title: 'Failed to Update Admin',
+        message: err.message || 'Failed to update admin. Please try again.'
+      });
+    }
   };
 
   const handleDeleteAdmin = (id) => {
@@ -285,24 +373,59 @@ function AdminAccountManagement() {
       isOpen: true,
       title: 'Archive Admin Account',
       message: 'Are you sure you want to archive this admin account? This will move it to the archive list.',
-      onConfirm: (reason) => {
-        const archivedItem = {
-          ...admin,
-          type: admin.type || 'admin', // Ensure type is set
-          reason,
-          archivedAt: new Date().toISOString()
-        };
-        const currentArchive = JSON.parse(localStorage.getItem('archivedItems') || '[]');
-        localStorage.setItem('archivedItems', JSON.stringify([...currentArchive, archivedItem]));
-        const updatedAdmins = admins.filter(a => a.id !== id);
-        setAdmins(updatedAdmins);
-        localStorage.setItem('adminsList', JSON.stringify(updatedAdmins));
+      onConfirm: async (reason) => {
+        try {
+          await archiveAdmin(id, reason);
+          // Refresh the list
+          const data = await getAdmins();
+          setAdmins(data);
+          
+          // Show success modal
+          setSuccessModal({
+            isOpen: true,
+            title: 'Admin Archived',
+            message: 'Admin account has been archived successfully!'
+          });
+        } catch (err) {
+          console.error('Error archiving admin:', err);
+          setErrorModal({
+            isOpen: true,
+            title: 'Failed to Archive Admin',
+            message: err.message || 'Failed to archive admin. Please try again.'
+          });
+        }
       },
     });
   };
 
   const openDetails = (admin) => setSelectedAdmin(admin);
   const closeDetails = () => setSelectedAdmin(null);
+
+  if (loading) {
+    return (
+      <AdminLayout pageTitle="Admin Account Management" onSearchChange={handleSearchChange}>
+        <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-8 text-center">
+          <p className="text-gray-600">Loading admin accounts...</p>
+        </div>
+      </AdminLayout>
+    );
+  }
+
+  if (error) {
+    return (
+      <AdminLayout pageTitle="Admin Account Management" onSearchChange={handleSearchChange}>
+        <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-8 text-center">
+          <p className="text-red-600">{error}</p>
+          <button 
+            onClick={() => window.location.reload()} 
+            className="mt-4 px-4 py-2 bg-[#143F81] text-white rounded-lg hover:bg-blue-700"
+          >
+            Retry
+          </button>
+        </div>
+      </AdminLayout>
+    );
+  }
 
   return (
     <AdminLayout pageTitle="Admin Account Management" onSearchChange={handleSearchChange}>
@@ -428,53 +551,89 @@ function AdminAccountManagement() {
         )}
       </div>
 
-      {/* Admin Details Modal */}
+      {/* Admin Details Modal - Card Style */}
       {selectedAdmin && !isEditModalOpen && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-30">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6">
-            <h2 className="text-xl font-bold text-[#143F81] mb-4">Admin Details</h2>
-            <div className="space-y-3 text-sm">
-              <div>
-                <p className="font-semibold text-gray-700">Name</p>
-                <p className="text-gray-900">{selectedAdmin.name}</p>
-              </div>
-              <div>
-                <p className="font-semibold text-gray-700">Email</p>
-                <p className="text-gray-900">{selectedAdmin.email}</p>
-              </div>
-              <div>
-                <p className="font-semibold text-gray-700">Username</p>
-                <p className="text-gray-900">{selectedAdmin.username}</p>
-              </div>
-              <div>
-                <p className="font-semibold text-gray-700">ID</p>
-                <p className="text-gray-900">{selectedAdmin.id}</p>
-              </div>
-              <div className="flex gap-6">
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-30" onClick={closeDetails}>
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6" onClick={(e) => e.stopPropagation()}>
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-bold text-[#143F81]">Admin Details</h2>
+              <button
+                onClick={closeDetails}
+                className="text-gray-400 hover:text-gray-600"
+                aria-label="Close"
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <div className="space-y-4">
+              <div className="bg-gray-50 rounded-lg p-4 space-y-3">
                 <div>
-                  <p className="font-semibold text-gray-700">Status</p>
-                  <p className="text-gray-900">{selectedAdmin.status}</p>
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Name</p>
+                  <p className="text-base font-medium text-gray-900">{selectedAdmin.name || 'N/A'}</p>
                 </div>
                 <div>
-                  <p className="font-semibold text-gray-700">Last Active</p>
-                  <p className="text-gray-900">{selectedAdmin.lastActive}</p>
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Email</p>
+                  <p className="text-base text-gray-900">{selectedAdmin.email || 'N/A'}</p>
+                </div>
+                <div>
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Username</p>
+                  <p className="text-base text-gray-900">{selectedAdmin.username || 'N/A'}</p>
+                </div>
+                <div>
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Admin ID</p>
+                  <p className="text-base font-mono text-gray-900">{selectedAdmin.id || 'N/A'}</p>
                 </div>
               </div>
-              <div>
-                <p className="font-semibold text-gray-700">Created At</p>
-                <p className="text-gray-900">{selectedAdmin.createdAt}</p>
+              
+              <div className="grid grid-cols-2 gap-4">
+                <div className="bg-gray-50 rounded-lg p-3">
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Status</p>
+                  <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                    selectedAdmin.status === 'Active'
+                      ? 'bg-green-100 text-green-800'
+                      : 'bg-gray-100 text-gray-800'
+                  }`}>
+                    {selectedAdmin.status || 'N/A'}
+                  </span>
+                </div>
+                <div className="bg-gray-50 rounded-lg p-3">
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Role</p>
+                  <p className="text-base text-gray-900">{selectedAdmin.role || 'ADMIN'}</p>
+                </div>
               </div>
+
+              <div className="bg-gray-50 rounded-lg p-3">
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Last Active</p>
+                <p className="text-sm text-gray-900">{selectedAdmin.lastActive || 'Never'}</p>
+              </div>
+
+              {selectedAdmin.createdAt && (
+                <div className="bg-gray-50 rounded-lg p-3">
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Created At</p>
+                  <p className="text-sm text-gray-900">
+                    {selectedAdmin.createdAt instanceof Date 
+                      ? selectedAdmin.createdAt.toLocaleString()
+                      : selectedAdmin.createdAt
+                    }
+                  </p>
+                </div>
+              )}
             </div>
             <div className="mt-6 flex gap-2 justify-end">
               <button
-                className="px-4 py-2 rounded-lg bg-gray-200 text-gray-700 text-sm font-medium hover:bg-gray-300"
+                className="px-4 py-2 rounded-lg bg-gray-200 text-gray-700 text-sm font-medium hover:bg-gray-300 transition-colors"
                 onClick={closeDetails}
               >
                 Close
               </button>
               <button
-                className="px-4 py-2 rounded-lg bg-[#143F81] text-white text-sm font-medium hover:bg-[#1a4fa3]"
-                onClick={() => handleEditAdmin(selectedAdmin)}
+                className="px-4 py-2 rounded-lg bg-[#143F81] text-white text-sm font-medium hover:bg-[#1a4fa3] transition-colors"
+                onClick={() => {
+                  closeDetails();
+                  handleEditAdmin(selectedAdmin);
+                }}
               >
                 Edit
               </button>
@@ -520,13 +679,22 @@ function AdminAccountManagement() {
                 <input
                   type="text"
                   value={formData.username}
-                  onChange={handleUsernameChange}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    // Prevent using 'superadmin' as username
+                    if (value.toLowerCase() === 'superadmin') {
+                      setErrors({ ...errors, username: 'Username "superadmin" is reserved for the system account' });
+                    } else {
+                      handleUsernameChange(e);
+                    }
+                  }}
                   className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-[#143F81] ${
                     errors.username ? 'border-red-500' : 'border-gray-300'
                   }`}
                   placeholder="adminjuan"
                 />
                 {errors.username && <p className="text-red-500 text-xs mt-1">{errors.username}</p>}
+                <p className="text-gray-500 text-xs mt-1">Note: "superadmin" is reserved for the system account</p>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
@@ -535,7 +703,7 @@ function AdminAccountManagement() {
                     type={showPassword ? "text" : "password"}
                     value={formData.password}
                     onChange={handlePasswordChange}
-                    className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-[#143F81] ${
+                    className={`w-full px-3 py-2 pr-10 border rounded-lg focus:outline-none focus:ring-2 focus:ring-[#143F81] ${
                       errors.password ? 'border-red-500' : 'border-gray-300'
                     }`}
                     placeholder="Enter password"
@@ -543,12 +711,13 @@ function AdminAccountManagement() {
                   <button 
                     type="button" 
                     onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
+                    aria-label={showPassword ? "Hide password" : "Show password"}
                   >
                     {showPassword ? (
-                      <EyeSlashIcon className="w-5 h-5 text-gray-600" />
+                      <EyeSlashIcon className="w-5 h-5" />
                     ) : (
-                      <EyeIcon className="w-5 h-5 text-gray-600" />
+                      <EyeIcon className="w-5 h-5" />
                     )}
                   </button>
                 </div>
@@ -561,7 +730,7 @@ function AdminAccountManagement() {
                     type={showConfirmPassword ? "text" : "password"}
                     value={formData.confirmPassword}
                     onChange={handleConfirmPasswordChange}
-                    className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-[#143F81] ${
+                    className={`w-full px-3 py-2 pr-10 border rounded-lg focus:outline-none focus:ring-2 focus:ring-[#143F81] ${
                       errors.confirmPassword ? 'border-red-500' : 'border-gray-300'
                     }`}
                     placeholder="Confirm password"
@@ -569,12 +738,13 @@ function AdminAccountManagement() {
                   <button 
                     type="button" 
                     onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
+                    aria-label={showConfirmPassword ? "Hide password" : "Show password"}
                   >
                     {showConfirmPassword ? (
-                      <EyeSlashIcon className="w-5 h-5 text-gray-600" />
+                      <EyeSlashIcon className="w-5 h-5" />
                     ) : (
-                      <EyeIcon className="w-5 h-5 text-gray-600" />
+                      <EyeIcon className="w-5 h-5" />
                     )}
                   </button>
                 </div>
@@ -634,7 +804,15 @@ function AdminAccountManagement() {
                 <input
                   type="text"
                   value={formData.username}
-                  onChange={(e) => setFormData({ ...formData, username: e.target.value })}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    // Prevent changing username to 'superadmin'
+                    if (value.toLowerCase() === 'superadmin') {
+                      alert('Username "superadmin" is reserved for the system account');
+                      return;
+                    }
+                    setFormData({ ...formData, username: value });
+                  }}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#143F81]"
                 />
               </div>
@@ -687,6 +865,22 @@ function AdminAccountManagement() {
         onConfirm={archiveModal.onConfirm}
         title={archiveModal.title}
         message={archiveModal.message}
+      />
+
+      {/* Error Modal */}
+      <ErrorModal
+        isOpen={errorModal.isOpen}
+        onClose={() => setErrorModal({ isOpen: false, title: '', message: '' })}
+        title={errorModal.title}
+        message={errorModal.message}
+      />
+
+      {/* Success Modal */}
+      <SuccessModal
+        isOpen={successModal.isOpen}
+        onClose={() => setSuccessModal({ isOpen: false, title: '', message: '' })}
+        title={successModal.title}
+        message={successModal.message}
       />
     </AdminLayout>
   );

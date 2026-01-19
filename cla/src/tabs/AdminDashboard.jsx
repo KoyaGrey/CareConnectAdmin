@@ -1,72 +1,70 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import AdminLayout from './AdminLayout';
 import ArchiveModal from '../component/ArchiveModal';
+import { subscribeToCaregivers, subscribeToPatients, archiveCaregiver, archivePatient, testFirestoreConnection } from '../utils/firestoreService';
 
 function AdminDashboard() {
-  const defaultCaregivers = [
-    { id: 'CG-001', name: 'Sarah Johnson', email: 'sarah.j@gmail.com', status: 'Active', lastActive: 'Just now', assignedPatient: 'Zaldy Largo', type: 'caregiver' },
-    { id: 'CG-002', name: 'Michael Zaldivar', email: 'michael.z@gmail.com', status: 'Active', lastActive: 'Just now', assignedPatient: 'Clint Fundano', type: 'caregiver' },
-    { id: 'CG-003', name: 'Ronald Mingoy', email: 'ronald.m@gmail.com', status: 'Active', lastActive: 'Just now', assignedPatient: 'Regan Pria', type: 'caregiver' },
-    { id: 'CG-004', name: 'Jacob Manuel', email: 'jacob.m@gmail.com', status: 'Inactive', lastActive: '2 days ago', assignedPatient: 'Rennel Bontilao', type: 'caregiver' },
-    { id: 'CG-005', name: 'Robert Altares', email: 'robert.a@gmail.com', status: 'Active', lastActive: 'Just now', assignedPatient: 'Renz Lapera', type: 'caregiver' },
-    { id: 'CG-006', name: 'Raymund Padon', email: 'raymund.p@gmail.com', status: 'Active', lastActive: 'Just now', assignedPatient: 'Eduard Dula', type: 'caregiver' },
-    { id: 'CG-007', name: 'James Largo', email: 'james.l@gmail.com', status: 'Active', lastActive: 'Just now', assignedPatient: 'Daniel Gutierrez', type: 'caregiver' },
-  ];
+  const [caregivers, setCaregivers] = useState([]);
+  const [patients, setPatients] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
-  const defaultPatients = [
-    { id: 'PT-001', name: 'Zaldy Largo', status: 'Active', lastActive: 'Just now', type: 'patient' },
-    { id: 'PT-002', name: 'Clint Fundano', status: 'Active', lastActive: 'Just now', type: 'patient' },
-    { id: 'PT-003', name: 'Regan Pria', status: 'Active', lastActive: 'Just now', type: 'patient' },
-    { id: 'PT-004', name: 'Rennel Bontilao', status: 'Inactive', lastActive: '2 days ago', type: 'patient' },
-    { id: 'PT-005', name: 'Renz Lapera', status: 'Active', lastActive: 'Just now', type: 'patient' },
-    { id: 'PT-006', name: 'Eduard Dula', status: 'Active', lastActive: 'Just now', type: 'patient' },
-    { id: 'PT-007', name: 'Daniel Gutierrez', status: 'Active', lastActive: 'Just now', type: 'patient' },
-  ];
-
-  // Load from localStorage or use default
-  const [caregivers, setCaregivers] = useState(() => {
-    const stored = localStorage.getItem('caregiversList');
-    if (stored) {
-      return JSON.parse(stored);
-    }
-    localStorage.setItem('caregiversList', JSON.stringify(defaultCaregivers));
-    return defaultCaregivers;
-  });
-
-  const [patients, setPatients] = useState(() => {
-    const stored = localStorage.getItem('patientsList');
-    if (stored) {
-      return JSON.parse(stored);
-    }
-    localStorage.setItem('patientsList', JSON.stringify(defaultPatients));
-    return defaultPatients;
-  });
-
-  // Reload from localStorage when component mounts, when storage changes, or when window regains focus
+  // Set up real-time listeners for Firestore data
   useEffect(() => {
-    const handleStorageChange = () => {
-      const storedCaregivers = localStorage.getItem('caregiversList');
-      const storedPatients = localStorage.getItem('patientsList');
-      if (storedCaregivers) {
-        setCaregivers(JSON.parse(storedCaregivers));
-      }
-      if (storedPatients) {
-        setPatients(JSON.parse(storedPatients));
-      }
-    };
-
-    // Listen for storage events (when other tabs update localStorage)
-    window.addEventListener('storage', handleStorageChange);
+    console.log('=== AdminDashboard: Setting up Firestore listeners ===');
+    setLoading(true);
+    setError(null);
     
-    // Reload when window regains focus (e.g., when navigating back from archive page)
-    window.addEventListener('focus', handleStorageChange);
-    
-    // Also check on mount
-    handleStorageChange();
+    let unsubscribeCaregivers = null;
+    let unsubscribePatients = null;
 
+    // First, test the connection
+    testFirestoreConnection()
+      .then((result) => {
+        if (!result.success) {
+          const errorMsg = result.code === 'permission-denied' 
+            ? 'Permission denied. Please update Firestore security rules to allow read access. See FIRESTORE_TROUBLESHOOTING.md'
+            : `Firestore connection failed: ${result.error || result.code}`;
+          setError(errorMsg);
+          setLoading(false);
+          console.error('Connection test failed:', result);
+          return;
+        }
+        
+        console.log('✅ Connection test passed! Found', result.count, 'caregivers');
+        setError(null);
+
+        // Subscribe to caregivers updates
+        unsubscribeCaregivers = subscribeToCaregivers((caregiversData) => {
+          console.log('AdminDashboard: Caregivers updated:', caregiversData.length);
+          setCaregivers(caregiversData);
+          if (caregiversData.length === 0) {
+            console.warn('No caregivers found. Check Firestore data and security rules.');
+          }
+          setLoading(false);
+        });
+
+        // Subscribe to patients updates
+        unsubscribePatients = subscribeToPatients((patientsData) => {
+          console.log('AdminDashboard: Patients updated:', patientsData.length);
+          setPatients(patientsData);
+          if (patientsData.length === 0) {
+            console.warn('No patients found. Check Firestore data and security rules.');
+          }
+          setLoading(false);
+        });
+      })
+      .catch((err) => {
+        console.error('Error in connection test:', err);
+        setError(`Failed to connect to Firestore: ${err.message}. Check browser console for details.`);
+        setLoading(false);
+      });
+
+    // Cleanup: unsubscribe when component unmounts
     return () => {
-      window.removeEventListener('storage', handleStorageChange);
-      window.removeEventListener('focus', handleStorageChange);
+      console.log('AdminDashboard: Cleaning up real-time listeners...');
+      if (unsubscribeCaregivers) unsubscribeCaregivers();
+      if (unsubscribePatients) unsubscribePatients();
     };
   }, []);
 
@@ -83,15 +81,6 @@ function AdminDashboard() {
     setSearchTerm(term.toLowerCase());
   };
 
-  const addToArchive = (item, reason) => {
-      const archivedItem = {
-          ...item,
-          reason,
-          archivedAt: new Date().toISOString()
-      };
-      const currentArchive = JSON.parse(localStorage.getItem('archivedItems') || '[]');
-      localStorage.setItem('archivedItems', JSON.stringify([...currentArchive, archivedItem]));
-  };
 
   const filteredCaregivers = useMemo(
     () =>
@@ -117,11 +106,14 @@ function AdminDashboard() {
       isOpen: true,
       title: 'Archive Caregiver',
       message: 'Are you sure you want to archive this caregiver account? This will move it to the archive list.',
-      onConfirm: (reason) => {
-        addToArchive(item, reason);
-        const updatedCaregivers = caregivers.filter((c) => c.id !== id);
-        setCaregivers(updatedCaregivers);
-        localStorage.setItem('caregiversList', JSON.stringify(updatedCaregivers));
+      onConfirm: async (reason) => {
+        try {
+          await archiveCaregiver(id, reason);
+          // Data will automatically update via real-time listener
+        } catch (err) {
+          console.error('Error archiving caregiver:', err);
+          alert(err.message || 'Failed to archive caregiver. Please check browser console for details.');
+        }
       },
     });
   };
@@ -132,11 +124,14 @@ function AdminDashboard() {
       isOpen: true,
       title: 'Archive Patient',
       message: 'Are you sure you want to archive this patient account? This will move it to the archive list.',
-      onConfirm: (reason) => {
-        addToArchive(item, reason);
-        const updatedPatients = patients.filter((p) => p.id !== id);
-        setPatients(updatedPatients);
-        localStorage.setItem('patientsList', JSON.stringify(updatedPatients));
+      onConfirm: async (reason) => {
+        try {
+          await archivePatient(id, reason);
+          // Data will automatically update via real-time listener
+        } catch (err) {
+          console.error('Error archiving patient:', err);
+          alert(err.message || 'Failed to archive patient. Please check browser console for details.');
+        }
       },
     });
   };
@@ -150,6 +145,36 @@ function AdminDashboard() {
   const totalCaregivers = caregivers.length;
   const totalPatients = patients.length;
   const activeToday = patients.filter((p) => p.status === 'Active').length; // just example
+
+  if (loading) {
+    return (
+      <AdminLayout pageTitle="Overview" onSearchChange={handleSearchChange}>
+        <div className="flex items-center justify-center h-64">
+          <p className="text-gray-600">Loading data...</p>
+        </div>
+      </AdminLayout>
+    );
+  }
+
+  if (error) {
+    return (
+      <AdminLayout pageTitle="Overview" onSearchChange={handleSearchChange}>
+        <div className="flex flex-col items-center justify-center h-64 p-6">
+          <p className="text-red-600 font-bold text-lg mb-4">⚠️ Error Loading Data</p>
+          <p className="text-red-600 mb-2">{error}</p>
+          <div className="mt-4 p-4 bg-yellow-50 border border-yellow-200 rounded-lg max-w-2xl">
+            <p className="font-semibold mb-2">Common fixes:</p>
+            <ol className="list-decimal list-inside space-y-1 text-sm">
+              <li>Check Firestore security rules (Firebase Console → Firestore → Rules)</li>
+              <li>Verify Firebase connection in browser console (F12)</li>
+              <li>Check if data exists in Firestore (Firebase Console → Firestore → Data)</li>
+              <li>See FIRESTORE_TROUBLESHOOTING.md for detailed help</li>
+            </ol>
+          </div>
+        </div>
+      </AdminLayout>
+    );
+  }
 
   return (
     <AdminLayout

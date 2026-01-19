@@ -13,7 +13,12 @@ export const ROLES = {
  * @returns {string|null} The user role or null if not logged in
  */
 export const getCurrentRole = () => {
-  return localStorage.getItem('userRole');
+  try {
+    return localStorage.getItem('userRole');
+  } catch (error) {
+    console.warn('Error reading userRole from localStorage:', error);
+    return null;
+  }
 };
 
 /**
@@ -76,31 +81,78 @@ export const hasAccess = (allowedRoles) => {
 };
 
 /**
- * Logout user by clearing authentication data
+ * Logout user by clearing authentication data and updating Firestore
  */
 export const logout = () => {
+  // Get admin profile before clearing localStorage
+  const adminProfileStr = localStorage.getItem('adminProfile');
+  const adminId = adminProfileStr ? JSON.parse(adminProfileStr).adminId : null;
+  
+  // Clear localStorage first (non-blocking)
   localStorage.removeItem('userRole');
+  localStorage.removeItem('adminProfile');
+  
+  // Update isActive flag in Firestore (non-blocking, fire and forget)
+  if (adminId) {
+    // Use dynamic import to avoid circular dependencies
+    import('./firebase').then(({ db }) => {
+      return Promise.all([
+        import('firebase/firestore'),
+        import('./firestoreService')
+      ]).then(([{ doc, updateDoc }, { COLLECTIONS, SUPER_ADMIN_CREDENTIALS }]) => {
+        // Don't update super admin's isActive (it's always active)
+        if (adminId !== SUPER_ADMIN_CREDENTIALS.DOC_ID) {
+          const adminRef = doc(db, COLLECTIONS.ADMINS, adminId);
+          updateDoc(adminRef, {
+            isActive: false
+          }).then(() => {
+            console.log('Admin isActive flag set to false on logout');
+          }).catch((error) => {
+            console.warn('Could not update isActive flag on logout (non-critical):', error);
+          });
+        }
+      });
+    }).catch((error) => {
+        console.warn('Could not update isActive flag on logout (non-critical):', error);
+    });
+  }
 };
 
+import { authenticateAdmin, initializeSuperAdmin } from './firestoreService';
+
 /**
- * Determine user role from login credentials (mock implementation)
- * In production, this would make an API call
+ * Determine user role from login credentials
+ * Authenticates against Firestore database
  * @param {string} username - The username
  * @param {string} password - The password
  * @returns {Promise<string>} The user role
  */
 export const authenticate = async (username, password) => {
-  // Mock authentication - in production, this would be an API call
-  // For now, superadmin username gives SUPER_ADMIN role
-  if (username === 'superadmin' && password) {
-    return ROLES.SUPER_ADMIN;
+  try {
+    console.log('Attempting login with username:', username);
+    
+    // Initialize super admin if it doesn't exist (non-blocking)
+    initializeSuperAdmin().catch(err => {
+      console.warn('Could not initialize super admin (non-critical):', err);
+    });
+    
+    // Authenticate against Firestore
+    const adminData = await authenticateAdmin(username, password);
+    
+    if (adminData) {
+      console.log('Authentication successful. Role:', adminData.role);
+      return adminData.role === 'SUPER_ADMIN' ? ROLES.SUPER_ADMIN : ROLES.ADMIN;
+    }
+    
+    throw new Error('Invalid credentials');
+  } catch (error) {
+    console.error('Authentication error:', error);
+    console.error('Error details:', {
+      message: error.message,
+      code: error.code,
+      stack: error.stack
+    });
+    throw new Error(error.message || 'Invalid credentials');
   }
-  
-  // Default to ADMIN role for other users
-  if (username && password) {
-    return ROLES.ADMIN;
-  }
-  
-  throw new Error('Invalid credentials');
 };
 

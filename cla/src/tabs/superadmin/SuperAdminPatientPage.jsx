@@ -2,28 +2,31 @@ import React, { useMemo, useState, useEffect } from 'react';
 import AdminLayout from '../AdminLayout';
 import ArchiveModal from '../../component/ArchiveModal';
 import Pagination from '../../component/Pagination';
+import { subscribeToPatients, archivePatient } from '../../utils/firestoreService';
 
 function SuperAdminPatientPage() {
-  const defaultPatients = [
-    { id: 'PT-001', name: 'Zaldy Largo', status: 'Active', lastActive: 'Just now', type: 'patient' },
-    { id: 'PT-002', name: 'Clint Fundano', status: 'Active', lastActive: 'Just now', type: 'patient' },
-    { id: 'PT-003', name: 'Regan Pria', status: 'Active', lastActive: 'Just now', type: 'patient' },
-    { id: 'PT-004', name: 'Rennel Bontilao', status: 'Inactive', lastActive: '2 days ago', type: 'patient' },
-    { id: 'PT-005', name: 'Renz Lapera', status: 'Active', lastActive: 'Just now', type: 'patient' },
-    { id: 'PT-006', name: 'Eduard Dula', status: 'Active', lastActive: 'Just now', type: 'patient' },
-    { id: 'PT-007', name: 'Daniel Gutierrez', status: 'Active', lastActive: 'Just now', type: 'patient' },
-  ];
+  const [patients, setPatients] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
-  // Load from localStorage or use default
-  const [patients, setPatients] = useState(() => {
-    const stored = localStorage.getItem('patientsList');
-    if (stored) {
-      return JSON.parse(stored);
-    }
-    // Save default to localStorage on first load
-    localStorage.setItem('patientsList', JSON.stringify(defaultPatients));
-    return defaultPatients;
-  });
+  // Set up real-time listener for patients
+  useEffect(() => {
+    console.log('Setting up real-time listener for patients...');
+    setLoading(true);
+    setError(null);
+
+    const unsubscribe = subscribeToPatients((patientsData) => {
+      console.log('Patients updated:', patientsData.length);
+      setPatients(patientsData);
+      setLoading(false);
+    });
+
+    // Cleanup: unsubscribe when component unmounts
+    return () => {
+      console.log('Cleaning up patients listener...');
+      unsubscribe();
+    };
+  }, []);
 
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedAccount, setSelectedAccount] = useState(null);
@@ -38,32 +41,20 @@ function SuperAdminPatientPage() {
     onConfirm: () => {},
   });
 
-  const addToArchive = (item, reason) => {
-      const archivedItem = {
-          ...item,
-          reason,
-          archivedAt: new Date().toISOString()
-      };
-      const currentArchive = JSON.parse(localStorage.getItem('archivedItems') || '[]');
-      localStorage.setItem('archivedItems', JSON.stringify([...currentArchive, archivedItem]));
-  };
-
-  // Save patients to localStorage whenever it changes
-  useEffect(() => {
-    localStorage.setItem('patientsList', JSON.stringify(patients));
-  }, [patients]);
-
   const handleDeletePatient = (id) => {
     const item = patients.find(p => p.id === id);
     setArchiveModal({
       isOpen: true,
       title: 'Archive Patient',
       message: 'Are you sure you want to archive this patient account? This will move it to the archive list.',
-      onConfirm: (reason) => {
-        addToArchive(item, reason);
-        const updatedPatients = patients.filter((p) => p.id !== id);
-        setPatients(updatedPatients);
-        localStorage.setItem('patientsList', JSON.stringify(updatedPatients));
+      onConfirm: async (reason) => {
+        try {
+          await archivePatient(id, reason);
+          // Data will automatically update via real-time listener
+        } catch (err) {
+          console.error('Error archiving patient:', err);
+          alert(err.message || 'Failed to archive patient. Please check browser console for details.');
+        }
       },
     });
   };
@@ -112,6 +103,26 @@ function SuperAdminPatientPage() {
 
   const openDetails = (account) => setSelectedAccount(account);
   const closeDetails = () => setSelectedAccount(null);
+
+  if (loading) {
+    return (
+      <AdminLayout pageTitle="Patients" onSearchChange={handleSearchChange}>
+        <div className="flex items-center justify-center h-64">
+          <p className="text-gray-600">Loading patients...</p>
+        </div>
+      </AdminLayout>
+    );
+  }
+
+  if (error) {
+    return (
+      <AdminLayout pageTitle="Patients" onSearchChange={handleSearchChange}>
+        <div className="flex items-center justify-center h-64">
+          <p className="text-red-600">{error}</p>
+        </div>
+      </AdminLayout>
+    );
+  }
 
   return (
     <AdminLayout pageTitle="Patients" onSearchChange={handleSearchChange}>

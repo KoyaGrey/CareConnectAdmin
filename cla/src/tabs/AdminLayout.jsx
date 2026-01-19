@@ -1,8 +1,12 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import ConfirmationModal from '../component/ConfirmationModal';
 import EditProfileModal from '../component/EditProfileModal';
+import SuccessModal from '../component/SuccessModal';
 import { getCurrentRole, logout, ROLES } from '../utils/auth';
+import { getDoc, doc, updateDoc } from 'firebase/firestore';
+import { db } from '../utils/firebase';
+import { SUPER_ADMIN_CREDENTIALS } from '../utils/firestoreService';
 import CareConnectWheelchairLogo from '../component/img/CareConnectWheelchairLogo.png';
 
 function AdminLayout({
@@ -25,11 +29,100 @@ function AdminLayout({
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [adminProfile, setAdminProfile] = useState({
-    fullName: 'Admin User',
-    email: 'admin@careconnect.com',
-    username: 'admin'
+    fullName: '',
+    email: '',
+    username: ''
+  });
+  const [loadingProfile, setLoadingProfile] = useState(true);
+  const [successModal, setSuccessModal] = useState({
+    isOpen: false,
+    title: '',
+    message: '',
+    type: 'success'
   });
   const navigate = useNavigate();
+
+  // Fetch current admin profile data on component mount
+  useEffect(() => {
+    const fetchAdminProfile = async () => {
+      try {
+        setLoadingProfile(true);
+        
+        // First, try to get from localStorage (set during login)
+        const storedProfile = localStorage.getItem('adminProfile');
+        if (storedProfile) {
+          try {
+            const profile = JSON.parse(storedProfile);
+            setAdminProfile({
+              fullName: profile.fullName || '',
+              email: profile.email || '',
+              username: profile.username || ''
+            });
+            setLoadingProfile(false);
+            return;
+          } catch (e) {
+            console.warn('Failed to parse stored profile:', e);
+          }
+        }
+        
+        // If not in localStorage, fetch from Firestore based on role
+        const currentRole = getCurrentRole();
+        if (currentRole === ROLES.SUPER_ADMIN) {
+          // Fetch super admin data
+          const superAdminRef = doc(db, 'admins', SUPER_ADMIN_CREDENTIALS.DOC_ID);
+          const superAdminSnap = await getDoc(superAdminRef);
+          
+          if (superAdminSnap.exists()) {
+            const data = superAdminSnap.data();
+            setAdminProfile({
+              fullName: data.name || 'Super Administrator',
+              email: data.email || 'superadmin@careconnect.com',
+              username: data.username || SUPER_ADMIN_CREDENTIALS.USERNAME
+            });
+          } else {
+            // Fallback to default super admin data
+            setAdminProfile({
+              fullName: 'Super Administrator',
+              email: 'superadmin@careconnect.com',
+              username: SUPER_ADMIN_CREDENTIALS.USERNAME
+            });
+          }
+        } else {
+          // For regular admins, try to get from localStorage first
+          // If not available, we'd need the admin ID - for now use stored data
+          const stored = localStorage.getItem('adminProfile');
+          if (stored) {
+            const profile = JSON.parse(stored);
+            setAdminProfile({
+              fullName: profile.fullName || 'Admin User',
+              email: profile.email || '',
+              username: profile.username || ''
+            });
+          } else {
+            // Fallback
+            setAdminProfile({
+              fullName: 'Admin User',
+              email: 'admin@careconnect.com',
+              username: 'admin'
+            });
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching admin profile:', error);
+        // Fallback to default
+        const currentRole = getCurrentRole();
+        setAdminProfile({
+          fullName: currentRole === ROLES.SUPER_ADMIN ? 'Super Administrator' : 'Admin User',
+          email: currentRole === ROLES.SUPER_ADMIN ? 'superadmin@careconnect.com' : 'admin@careconnect.com',
+          username: currentRole === ROLES.SUPER_ADMIN ? SUPER_ADMIN_CREDENTIALS.USERNAME : 'admin'
+        });
+      } finally {
+        setLoadingProfile(false);
+      }
+    };
+
+    fetchAdminProfile();
+  }, []); // Run once on mount
 
   const handleSearchChange = (e) => {
     const value = e.target.value;
@@ -42,10 +135,73 @@ function AdminLayout({
     setIsAccountMenuOpen(false);
   };
 
-  const handleSaveProfile = (newData) => {
-    setAdminProfile(newData);
-    // In a real app, this would be an API call
-    console.log('Profile updated:', newData);
+  const handleSaveProfile = async (newData) => {
+    try {
+      const currentRole = getCurrentRole();
+      const storedProfile = localStorage.getItem('adminProfile');
+      let adminId = null;
+      
+      if (storedProfile) {
+        const profile = JSON.parse(storedProfile);
+        adminId = profile.adminId;
+      }
+      
+      // Update in Firestore
+      if (currentRole === ROLES.SUPER_ADMIN) {
+        // Update super admin
+        const superAdminRef = doc(db, 'admins', SUPER_ADMIN_CREDENTIALS.DOC_ID);
+        await updateDoc(superAdminRef, {
+          name: newData.fullName,
+          email: newData.email,
+          username: newData.username,
+          ...(newData.password && { password: newData.password })
+        });
+      } else if (adminId) {
+        // Update regular admin
+        const adminRef = doc(db, 'admins', adminId);
+        await updateDoc(adminRef, {
+          name: newData.fullName,
+          email: newData.email,
+          username: newData.username,
+          ...(newData.password && { password: newData.password })
+        });
+      }
+      
+      // Update local state
+      setAdminProfile(newData);
+      
+      // Update localStorage
+      localStorage.setItem('adminProfile', JSON.stringify({
+        ...newData,
+        adminId: adminId
+      }));
+      
+      console.log('Profile updated successfully:', newData);
+      
+      // Close edit profile modal
+      setIsProfileModalOpen(false);
+      
+      // Show success modal
+      setSuccessModal({
+        isOpen: true,
+        title: 'Profile Updated',
+        message: 'Your profile has been updated successfully!',
+        type: 'success'
+      });
+    } catch (error) {
+      console.error('Error updating profile:', error);
+      
+      // Close edit profile modal
+      setIsProfileModalOpen(false);
+      
+      // Show error modal
+      setSuccessModal({
+        isOpen: true,
+        title: 'Update Failed',
+        message: `Failed to update profile: ${error.message || 'Unknown error'}`,
+        type: 'error'
+      });
+    }
   };
 
   const handleLogoutClick = () => {
@@ -232,8 +388,23 @@ function AdminLayout({
               type="button"
               onClick={() => setIsAccountMenuOpen((o) => !o)}
               className="w-10 h-10 bg-[#143F81] rounded-full flex items-center justify-center text-white font-bold relative"
+              title={adminProfile.fullName || (role === ROLES.SUPER_ADMIN ? 'Super Admin' : 'Admin')}
             >
-              {role === ROLES.SUPER_ADMIN ? 'SA' : 'AD'}
+              {(() => {
+                // Get initials from admin's full name
+                if (adminProfile.fullName && adminProfile.fullName.trim()) {
+                  const nameParts = adminProfile.fullName.trim().split(/\s+/);
+                  if (nameParts.length >= 2) {
+                    // First letter of first name + first letter of last name
+                    return (nameParts[0][0] + nameParts[nameParts.length - 1][0]).toUpperCase();
+                  } else if (nameParts.length === 1) {
+                    // If only one word, use first two letters
+                    return nameParts[0].substring(0, 2).toUpperCase();
+                  }
+                }
+                // Fallback to role-based initials if name not available
+                return role === ROLES.SUPER_ADMIN ? 'SA' : 'AD';
+              })()}
             </button>
 
             {isAccountMenuOpen && (
@@ -270,10 +441,19 @@ function AdminLayout({
       />
 
       <EditProfileModal
-        isOpen={isProfileModalOpen}
+        isOpen={isProfileModalOpen && !loadingProfile}
         onClose={() => setIsProfileModalOpen(false)}
         onSave={handleSaveProfile}
         initialData={adminProfile}
+      />
+
+      {/* Success/Error Modal for Profile Updates */}
+      <SuccessModal
+        isOpen={successModal.isOpen}
+        onClose={() => setSuccessModal({ isOpen: false, title: '', message: '', type: 'success' })}
+        title={successModal.title}
+        message={successModal.message}
+        type={successModal.type}
       />
     </div>
   );

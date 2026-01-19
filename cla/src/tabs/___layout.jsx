@@ -8,7 +8,8 @@ function TabLayout() {
             {/* Fixed logo top-left */}
            <img
   src={CareConnect}
-  className="w-[280px] h-[200px] fixed top-0 left-1/2 -translate-x-1/2"
+  alt="CareConnect Logo"
+  className="w-[350px] h-[300px] fixed -top-8 left-1/2 -translate-x-1/2"
  />
 
 

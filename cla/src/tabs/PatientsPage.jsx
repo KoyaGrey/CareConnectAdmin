@@ -2,28 +2,12 @@ import React, { useMemo, useState, useEffect } from 'react';
 import AdminLayout from './AdminLayout';
 import ArchiveModal from '../component/ArchiveModal';
 import Pagination from '../component/Pagination';
+import { subscribeToPatients, archivePatient } from '../utils/firestoreService';
 
 function PatientsPage() {
-  const defaultPatients = [
-    { id: 'PT-001', name: 'Zaldy Largo', status: 'Active', lastActive: 'Just now', type: 'patient' },
-    { id: 'PT-002', name: 'Clint Fundano', status: 'Active', lastActive: 'Just now', type: 'patient' },
-    { id: 'PT-003', name: 'Regan Pria', status: 'Active', lastActive: 'Just now', type: 'patient' },
-    { id: 'PT-004', name: 'Rennel Bontilao', status: 'Inactive', lastActive: '2 days ago', type: 'patient' },
-    { id: 'PT-005', name: 'Renz Lapera', status: 'Active', lastActive: 'Just now', type: 'patient' },
-    { id: 'PT-006', name: 'Eduard Dula', status: 'Active', lastActive: 'Just now', type: 'patient' },
-    { id: 'PT-007', name: 'Daniel Gutierrez', status: 'Active', lastActive: 'Just now', type: 'patient' },
-  ];
-
-  // Load from localStorage or use default
-  const [patients, setPatients] = useState(() => {
-    const stored = localStorage.getItem('patientsList');
-    if (stored) {
-      return JSON.parse(stored);
-    }
-    // Save default to localStorage on first load
-    localStorage.setItem('patientsList', JSON.stringify(defaultPatients));
-    return defaultPatients;
-  });
+  const [patients, setPatients] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedAccount, setSelectedAccount] = useState(null);
@@ -38,20 +22,34 @@ function PatientsPage() {
     onConfirm: () => {},
   });
 
-  const addToArchive = (item, reason) => {
-      const archivedItem = {
-          ...item,
-          reason,
-          archivedAt: new Date().toISOString()
-      };
-      const currentArchive = JSON.parse(localStorage.getItem('archivedItems') || '[]');
-      localStorage.setItem('archivedItems', JSON.stringify([...currentArchive, archivedItem]));
-  };
-
-  // Save patients to localStorage whenever it changes
+  // Set up real-time listener for patients
   useEffect(() => {
-    localStorage.setItem('patientsList', JSON.stringify(patients));
-  }, [patients]);
+    console.log('Setting up real-time listener for patients...');
+    setLoading(true);
+    setError(null);
+
+    const unsubscribe = subscribeToPatients((patientsData) => {
+      console.log('Patients updated:', patientsData.length);
+      setPatients(patientsData);
+      setLoading(false);
+    });
+
+    // Cleanup: unsubscribe when component unmounts
+    return () => {
+      console.log('Cleaning up patients listener...');
+      unsubscribe();
+    };
+  }, []);
+
+  const addToArchive = async (item, reason) => {
+    try {
+      await archivePatient(item.id, reason);
+      // Data will automatically update via real-time listener
+    } catch (err) {
+      console.error('Error archiving patient:', err);
+      alert(err.message || 'Failed to archive patient. Please check browser console for details.');
+    }
+  };
 
   const handleDeletePatient = (id) => {
     const item = patients.find(p => p.id === id);
@@ -61,9 +59,6 @@ function PatientsPage() {
       message: 'Are you sure you want to archive this patient account? This will move it to the archive list.',
       onConfirm: (reason) => {
         addToArchive(item, reason);
-        const updatedPatients = patients.filter((p) => p.id !== id);
-        setPatients(updatedPatients);
-        localStorage.setItem('patientsList', JSON.stringify(updatedPatients));
       },
     });
   };
@@ -112,6 +107,32 @@ function PatientsPage() {
 
   const openDetails = (account) => setSelectedAccount(account);
   const closeDetails = () => setSelectedAccount(null);
+
+  if (loading) {
+    return (
+      <AdminLayout pageTitle="Patients" onSearchChange={handleSearchChange}>
+        <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-8 text-center">
+          <p className="text-gray-600">Loading patients...</p>
+        </div>
+      </AdminLayout>
+    );
+  }
+
+  if (error) {
+    return (
+      <AdminLayout pageTitle="Patients" onSearchChange={handleSearchChange}>
+        <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-8 text-center">
+          <p className="text-red-600">{error}</p>
+          <button 
+            onClick={() => window.location.reload()} 
+            className="mt-4 px-4 py-2 bg-[#143F81] text-white rounded-lg hover:bg-blue-700"
+          >
+            Retry
+          </button>
+        </div>
+      </AdminLayout>
+    );
+  }
 
   return (
     <AdminLayout pageTitle="Patients" onSearchChange={handleSearchChange}>

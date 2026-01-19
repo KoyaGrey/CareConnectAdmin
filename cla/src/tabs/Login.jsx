@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { authenticate, setUserRole, ROLES } from '../utils/auth';
+import { authenticateAdmin } from '../utils/firestoreService';
 import { EyeIcon, EyeSlashIcon } from "@heroicons/react/24/outline";
+import ErrorModal from '../component/ErrorModal';
 
 function Login() {
     const navigate = useNavigate();
@@ -13,6 +15,11 @@ function Login() {
 
     const [errors, setErrors] = useState({});
     const [showPassword, setShowPassword] = useState(false);
+    const [errorModal, setErrorModal] = useState({
+        isOpen: false,
+        title: '',
+        message: ''
+    });
 
     const validateField = (name, value) => {
         if (name === 'username') {
@@ -54,22 +61,59 @@ function Login() {
 
         if (Object.keys(newErrors).length === 0) {
             try {
-                // Use centralized authentication
-                const role = await authenticate(formData.username, formData.password);
+                console.log('Starting authentication...');
+                console.log('Username:', formData.username);
+                console.log('Password length:', formData.password.length);
+                
+                // Get admin data for profile
+                const adminData = await authenticateAdmin(formData.username.trim(), formData.password);
+                
+                if (!adminData) {
+                    throw new Error('Invalid username or password');
+                }
+                
+                // Use centralized authentication to get role
+                const role = await authenticate(formData.username.trim(), formData.password);
+                
+                console.log('Authentication successful, role:', role);
+                console.log('Admin data:', adminData);
                 
                 // Save role using centralized utility
                 setUserRole(role);
+                
+                // Store admin profile data in localStorage for EditProfileModal
+                localStorage.setItem('adminProfile', JSON.stringify({
+                    fullName: adminData.name || 'Admin User',
+                    email: adminData.email || '',
+                    username: adminData.username || '',
+                    adminId: adminData.id || ''
+                }));
 
                 console.log('Login success:', role);
 
                 // Role-based redirect
+                // Use replace: true to prevent back button from going back to login
                 if (role === ROLES.SUPER_ADMIN) {
-                    navigate('/superadmin/dashboard');
+                    console.log('Redirecting to super admin dashboard');
+                    navigate('/superadmin/dashboard', { replace: true });
                 } else {
-                    navigate('/admin/dashboard');
+                    console.log('Redirecting to admin dashboard');
+                    navigate('/admin/dashboard', { replace: true });
                 }
             } catch (error) {
-                alert('Invalid username or password. Please try again.');
+                console.error('Login error:', error);
+                console.error('Error type:', error.constructor.name);
+                console.error('Error message:', error.message);
+                console.error('Error stack:', error.stack);
+                
+                const errorMessage = error.message || 'Invalid username or password. Please try again.';
+                
+                // Show error modal instead of alert
+                setErrorModal({
+                    isOpen: true,
+                    title: 'Login Failed',
+                    message: errorMessage
+                });
             }
         } else {
             alert('Please fill in all fields correctly.');
@@ -141,6 +185,13 @@ function Login() {
                 LOGIN
             </button>
             
+            {/* Error Modal */}
+            <ErrorModal
+                isOpen={errorModal.isOpen}
+                onClose={() => setErrorModal({ isOpen: false, title: '', message: '' })}
+                title={errorModal.title}
+                message={errorModal.message}
+            />
         </div>
     );
 }

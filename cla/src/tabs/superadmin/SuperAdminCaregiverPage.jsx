@@ -2,28 +2,31 @@ import React, { useMemo, useState, useEffect } from 'react';
 import AdminLayout from '../AdminLayout';
 import ArchiveModal from '../../component/ArchiveModal';
 import Pagination from '../../component/Pagination';
+import { subscribeToCaregivers, archiveCaregiver } from '../../utils/firestoreService';
 
 function SuperAdminCaregiverPage() {
-  const defaultCaregivers = [
-    { id: 'CG-001', name: 'Sarah Johnson', email: 'sarah.j@gmail.com', status: 'Active', lastActive: 'Just now', assignedPatient: 'Zaldy Largo', type: 'caregiver' },
-    { id: 'CG-002', name: 'Michael Zaldivar', email: 'michael.z@gmail.com', status: 'Active', lastActive: 'Just now', assignedPatient: 'Clint Fundano', type: 'caregiver' },
-    { id: 'CG-003', name: 'Ronald Mingoy', email: 'ronald.m@gmail.com', status: 'Active', lastActive: 'Just now', assignedPatient: 'Regan Pria', type: 'caregiver' },
-    { id: 'CG-004', name: 'Jacob Manuel', email: 'jacob.m@gmail.com', status: 'Inactive', lastActive: '2 days ago', assignedPatient: 'Rennel Bontilao', type: 'caregiver' },
-    { id: 'CG-005', name: 'Robert Altares', email: 'robert.a@gmail.com', status: 'Active', lastActive: 'Just now', assignedPatient: 'Renz Lapera', type: 'caregiver' },
-    { id: 'CG-006', name: 'Raymund Padon', email: 'raymund.p@gmail.com', status: 'Active', lastActive: 'Just now', assignedPatient: 'Eduard Dula', type: 'caregiver' },
-    { id: 'CG-007', name: 'James Largo', email: 'james.l@gmail.com', status: 'Active', lastActive: 'Just now', assignedPatient: 'Daniel Gutierrez', type: 'caregiver' },
-  ];
+  const [caregivers, setCaregivers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
-  // Load from localStorage or use default
-  const [caregivers, setCaregivers] = useState(() => {
-    const stored = localStorage.getItem('caregiversList');
-    if (stored) {
-      return JSON.parse(stored);
-    }
-    // Save default to localStorage on first load
-    localStorage.setItem('caregiversList', JSON.stringify(defaultCaregivers));
-    return defaultCaregivers;
-  });
+  // Set up real-time listener for caregivers
+  useEffect(() => {
+    console.log('Setting up real-time listener for caregivers...');
+    setLoading(true);
+    setError(null);
+
+    const unsubscribe = subscribeToCaregivers((caregiversData) => {
+      console.log('Caregivers updated:', caregiversData.length);
+      setCaregivers(caregiversData);
+      setLoading(false);
+    });
+
+    // Cleanup: unsubscribe when component unmounts
+    return () => {
+      console.log('Cleaning up caregivers listener...');
+      unsubscribe();
+    };
+  }, []);
 
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedAccount, setSelectedAccount] = useState(null);
@@ -42,20 +45,6 @@ function SuperAdminCaregiverPage() {
     setSearchTerm(term.toLowerCase());
   };
 
-  const addToArchive = (item, reason) => {
-      const archivedItem = {
-          ...item,
-          reason,
-          archivedAt: new Date().toISOString()
-      };
-      const currentArchive = JSON.parse(localStorage.getItem('archivedItems') || '[]');
-      localStorage.setItem('archivedItems', JSON.stringify([...currentArchive, archivedItem]));
-  };
-
-  // Save caregivers to localStorage whenever it changes
-  useEffect(() => {
-    localStorage.setItem('caregiversList', JSON.stringify(caregivers));
-  }, [caregivers]);
 
   const filteredCaregivers = useMemo(
     () => {
@@ -100,17 +89,40 @@ function SuperAdminCaregiverPage() {
       isOpen: true,
       title: 'Archive Caregiver',
       message: 'Are you sure you want to archive this caregiver account? This will move it to the archive list.',
-      onConfirm: (reason) => {
-        addToArchive(item, reason);
-        const updatedCaregivers = caregivers.filter((c) => c.id !== id);
-        setCaregivers(updatedCaregivers);
-        localStorage.setItem('caregiversList', JSON.stringify(updatedCaregivers));
+      onConfirm: async (reason) => {
+        try {
+          await archiveCaregiver(id, reason);
+          // Data will automatically update via real-time listener
+        } catch (err) {
+          console.error('Error archiving caregiver:', err);
+          alert(err.message || 'Failed to archive caregiver. Please check browser console for details.');
+        }
       },
     });
   };
 
   const openDetails = (account) => setSelectedAccount(account);
   const closeDetails = () => setSelectedAccount(null);
+
+  if (loading) {
+    return (
+      <AdminLayout pageTitle="Caregivers" onSearchChange={handleSearchChange}>
+        <div className="flex items-center justify-center h-64">
+          <p className="text-gray-600">Loading caregivers...</p>
+        </div>
+      </AdminLayout>
+    );
+  }
+
+  if (error) {
+    return (
+      <AdminLayout pageTitle="Caregivers" onSearchChange={handleSearchChange}>
+        <div className="flex items-center justify-center h-64">
+          <p className="text-red-600">{error}</p>
+        </div>
+      </AdminLayout>
+    );
+  }
 
   return (
     <AdminLayout pageTitle="Caregivers" onSearchChange={handleSearchChange}>

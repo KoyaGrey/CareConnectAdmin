@@ -1,30 +1,68 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import AdminLayout from './AdminLayout';
 import Pagination from '../component/Pagination';
+import RestoreModal from '../component/RestoreModal';
+import SuccessModal from '../component/SuccessModal';
+import { subscribeToArchivedItems, restoreArchivedItem } from '../utils/firestoreService';
 
 function ArchivePage() {
     const [archivedItems, setArchivedItems] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
     const [currentPage, setCurrentPage] = useState(1);
     const [itemsPerPage, setItemsPerPage] = useState(10);
     const [typeFilter, setTypeFilter] = useState('All');
     const [nameSort, setNameSort] = useState('asc');
+    const [restoreModal, setRestoreModal] = useState({
+        isOpen: false,
+        itemId: null,
+        itemName: '',
+        itemType: ''
+    });
+    const [successModal, setSuccessModal] = useState({
+        isOpen: false,
+        title: '',
+        message: '',
+        type: 'success'
+    });
 
+    // Set up real-time listener for archived items
     useEffect(() => {
-        const stored = localStorage.getItem('archivedItems');
-        if (stored) {
-            setArchivedItems(JSON.parse(stored));
-        }
+        console.log('Setting up real-time listener for archived items...');
+        setLoading(true);
+        setError(null);
+
+        const unsubscribe = subscribeToArchivedItems((archivedData) => {
+            try {
+                console.log('Archived items updated:', archivedData.length);
+                console.log('Sample archived item:', archivedData[0]);
+                setArchivedItems(archivedData);
+                setLoading(false);
+            } catch (error) {
+                console.error('Error processing archived items:', error);
+                setError('Failed to load archived items. Please check browser console.');
+                setLoading(false);
+            }
+        });
+
+        // Cleanup: unsubscribe when component unmounts
+        return () => {
+            console.log('Cleaning up archived items listener...');
+            unsubscribe();
+        };
     }, []);
 
     const filteredItems = useMemo(() => {
         const filtered = archivedItems.filter((item) => {
-            return typeFilter === 'All' || item.type === typeFilter;
+            // Handle missing type field
+            const itemType = item.type || 'unknown';
+            return typeFilter === 'All' || itemType === typeFilter;
         });
         
-        // Sort by name
+        // Sort by name (handle missing name)
         const sorted = [...filtered].sort((a, b) => {
-            const nameA = a.name.toLowerCase();
-            const nameB = b.name.toLowerCase();
+            const nameA = (a.name || 'Unknown').toLowerCase();
+            const nameB = (b.name || 'Unknown').toLowerCase();
             if (nameSort === 'asc') {
                 return nameA.localeCompare(nameB);
             } else {
@@ -47,42 +85,75 @@ function ArchivePage() {
         setCurrentPage(1);
     }, [typeFilter, nameSort]);
 
-    const handleRestore = (id) => {
+    const handleRestoreClick = (id) => {
         const itemToRestore = archivedItems.find(item => item.id === id);
-        if (!itemToRestore) return;
-
-        // Remove archive-specific fields
-        const { reason, archivedAt, ...restoredItem } = itemToRestore;
-
-        // Restore to the appropriate list based on type
-        if (itemToRestore.type === 'patient') {
-            const currentPatients = JSON.parse(localStorage.getItem('patientsList') || '[]');
-            // Check if patient already exists (shouldn't, but just in case)
-            if (!currentPatients.find(p => p.id === id)) {
-                const updatedPatients = [...currentPatients, restoredItem];
-                localStorage.setItem('patientsList', JSON.stringify(updatedPatients));
-            }
-        } else if (itemToRestore.type === 'caregiver') {
-            const currentCaregivers = JSON.parse(localStorage.getItem('caregiversList') || '[]');
-            // Check if caregiver already exists
-            if (!currentCaregivers.find(c => c.id === id)) {
-                const updatedCaregivers = [...currentCaregivers, restoredItem];
-                localStorage.setItem('caregiversList', JSON.stringify(updatedCaregivers));
-            }
-        } else if (itemToRestore.type === 'admin') {
-            const currentAdmins = JSON.parse(localStorage.getItem('adminsList') || '[]');
-            // Check if admin already exists
-            if (!currentAdmins.find(a => a.id === id)) {
-                const updatedAdmins = [...currentAdmins, restoredItem];
-                localStorage.setItem('adminsList', JSON.stringify(updatedAdmins));
-            }
+        if (!itemToRestore) {
+            alert('Item not found');
+            return;
         }
 
-        // Remove from archive
-        const newItems = archivedItems.filter(item => item.id !== id);
-        setArchivedItems(newItems);
-        localStorage.setItem('archivedItems', JSON.stringify(newItems));
+        // Open restore modal
+        setRestoreModal({
+            isOpen: true,
+            itemId: id,
+            itemName: itemToRestore.name || itemToRestore.id,
+            itemType: itemToRestore.type || 'item'
+        });
     };
+
+    const handleRestoreConfirm = async () => {
+        const { itemId, itemName } = restoreModal;
+        
+        try {
+            await restoreArchivedItem(itemId);
+            // Close restore modal
+            setRestoreModal({ isOpen: false, itemId: null, itemName: '', itemType: '' });
+            // Show success modal
+            setSuccessModal({
+                isOpen: true,
+                title: 'Restore Successful',
+                message: `${itemName || 'Item'} has been restored successfully!`
+            });
+            // Data will automatically update via real-time listener
+        } catch (err) {
+            console.error('Error restoring item:', err);
+            // Close restore modal
+            setRestoreModal({ isOpen: false, itemId: null, itemName: '', itemType: '' });
+            // Show error in success modal (reusing it for errors)
+            setSuccessModal({
+                isOpen: true,
+                title: 'Restore Failed',
+                message: `Failed to restore item: ${err.message || 'Unknown error'}`,
+                type: 'error'
+            });
+        }
+    };
+
+    if (loading) {
+        return (
+            <AdminLayout pageTitle="Archived Accounts">
+                <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-8 text-center">
+                    <p className="text-gray-600">Loading archived items...</p>
+                </div>
+            </AdminLayout>
+        );
+    }
+
+    if (error) {
+        return (
+            <AdminLayout pageTitle="Archived Accounts">
+                <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-8 text-center">
+                    <p className="text-red-600">{error}</p>
+                    <button 
+                        onClick={() => window.location.reload()} 
+                        className="mt-4 px-4 py-2 bg-[#143F81] text-white rounded-lg hover:bg-blue-700"
+                    >
+                        Retry
+                    </button>
+                </div>
+            </AdminLayout>
+        );
+    }
 
     return (
         <AdminLayout pageTitle="Archived Accounts">
@@ -141,13 +212,27 @@ function ArchivePage() {
                             ) : (
                                 paginatedItems.map((item) => (
                                     <tr key={item.id} className="hover:bg-gray-50">
-                                        <td className="px-6 py-4 whitespace-nowrap font-medium text-gray-900">{item.name}</td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-gray-600 capitalize">{item.type}</td>
-                                        <td className="px-6 py-4 text-gray-600 max-w-xs truncate" title={item.reason}>{item.reason}</td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-gray-600">{new Date(item.archivedAt).toLocaleDateString()}</td>
+                                        <td className="px-6 py-4 whitespace-nowrap font-medium text-gray-900">
+                                            {item.name || 'Unknown'}
+                                        </td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-gray-600 capitalize">
+                                            {item.type || 'unknown'}
+                                        </td>
+                                        <td className="px-6 py-4 text-gray-600 max-w-xs truncate" title={item.reason || 'No reason'}>
+                                            {item.reason || 'No reason provided'}
+                                        </td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-gray-600">
+                                            {item.archivedAt && item.archivedAt instanceof Date && !isNaN(item.archivedAt.getTime())
+                                                ? item.archivedAt.toLocaleDateString()
+                                                : item.archivedAt && typeof item.archivedAt === 'object' && item.archivedAt.seconds
+                                                    ? new Date(item.archivedAt.seconds * 1000).toLocaleDateString()
+                                                    : item.archivedAt && (typeof item.archivedAt === 'string' || typeof item.archivedAt === 'number')
+                                                        ? new Date(item.archivedAt).toLocaleDateString()
+                                                        : 'Invalid Date'}
+                                        </td>
                                         <td className="px-6 py-4 whitespace-nowrap">
                                             <button 
-                                                onClick={() => handleRestore(item.id)}
+                                                onClick={() => handleRestoreClick(item.id)}
                                                 className="text-[#143F81] hover:text-blue-800 font-medium text-sm"
                                             >
                                                 Restore
@@ -173,6 +258,24 @@ function ArchivePage() {
                     />
                 )}
             </div>
+
+            {/* Restore Confirmation Modal */}
+            <RestoreModal
+                isOpen={restoreModal.isOpen}
+                onClose={() => setRestoreModal({ isOpen: false, itemId: null, itemName: '', itemType: '' })}
+                onConfirm={handleRestoreConfirm}
+                itemName={restoreModal.itemName}
+                itemType={restoreModal.itemType}
+            />
+
+            {/* Success/Error Modal */}
+            <SuccessModal
+                isOpen={successModal.isOpen}
+                onClose={() => setSuccessModal({ isOpen: false, title: '', message: '', type: 'success' })}
+                title={successModal.title}
+                message={successModal.message}
+                type={successModal.type || 'success'}
+            />
         </AdminLayout>
     );
 }
