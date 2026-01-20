@@ -11,20 +11,26 @@ const ProtectedRoute = ({ allowedRoles, children }) => {
     // Small delay to ensure localStorage is fully loaded
     // This prevents race conditions on page refresh or browser back button
     const checkAuth = () => {
-      // Check if user is authenticated first
-      if (!isAuthenticated()) {
+      try {
+        // Check if user is authenticated first
+        if (!isAuthenticated()) {
+          setHasAccessToRoute(false);
+          setIsChecking(false);
+          return;
+        }
+
+        // Then check if user has access to this route
+        const access = hasAccess(allowedRoles);
+        setHasAccessToRoute(access);
+        setIsChecking(false);
+      } catch (error) {
+        console.error('Error checking authentication:', error);
         setHasAccessToRoute(false);
         setIsChecking(false);
-        return;
       }
-
-      // Then check if user has access to this route
-      const access = hasAccess(allowedRoles);
-      setHasAccessToRoute(access);
-      setIsChecking(false);
     };
 
-    // Small timeout to ensure localStorage is ready
+    // Small timeout to ensure localStorage is ready (especially on browser back button)
     const timer = setTimeout(checkAuth, 50);
     
     return () => clearTimeout(timer);
@@ -36,8 +42,9 @@ const ProtectedRoute = ({ allowedRoles, children }) => {
   }
 
   // Not logged in or wrong role - redirect to login
+  // Use replace to prevent back button from going to unauthenticated state
   if (!hasAccessToRoute) {
-    return <Navigate to="/tab/login" replace state={{ from: location.pathname }} />;
+    return <Navigate to="/tab/login" replace />;
   }
 
   return children;

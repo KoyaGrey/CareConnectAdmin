@@ -1,4 +1,4 @@
-/**
+ /**
  * Firestore Service
  * Handles all Firestore operations for the admin portal
  */
@@ -837,30 +837,23 @@ export const restoreArchivedItem = async (archivedId) => {
       }
     }
     
-    console.log('Cleaned data fields:', Object.keys(cleanedData));
-    
-    // CRITICAL: Prevent restoring to superadmin document ID
-    if (originalCollection === COLLECTIONS.ADMINS && originalId === SUPER_ADMIN_CREDENTIALS.DOC_ID) {
-      throw new Error('Cannot restore to superadmin document ID. This operation is not allowed.');
-    }
-    
-    // CRITICAL: Ensure admin data doesn't contain superadmin fields
+    // CRITICAL: For admins, ensure 'name' field is preserved
+    // If 'name' was excluded but this is an admin, restore it from archivedData
     if (originalCollection === COLLECTIONS.ADMINS) {
-      // Remove any superadmin-specific fields that shouldn't be in regular admin data
-      delete cleanedData.isFixed;
-      delete cleanedData.isProtected;
-      
-      // Ensure role is ADMIN, not SUPER_ADMIN (unless it's actually the superadmin, which we already prevented above)
-      if (cleanedData.role === 'SUPER_ADMIN') {
-        console.warn('Warning: Archived admin had SUPER_ADMIN role, resetting to ADMIN');
-        cleanedData.role = 'ADMIN';
+      if (archivedData.name && !cleanedData.name) {
+        console.log('Restoring name field for admin:', archivedData.name);
+        cleanedData.name = archivedData.name;
       }
-      
-      // Ensure username is not 'superadmin'
-      if (cleanedData.username && cleanedData.username.toLowerCase() === SUPER_ADMIN_CREDENTIALS.USERNAME.toLowerCase()) {
-        throw new Error('Cannot restore admin with superadmin username. This operation is not allowed.');
+      // Also check for fullName as fallback (in case it was stored that way)
+      if (!cleanedData.name && archivedData.fullName) {
+        console.log('Using fullName as name for admin:', archivedData.fullName);
+        cleanedData.name = archivedData.fullName;
       }
     }
+    
+    console.log('Cleaned data fields:', Object.keys(cleanedData));
+    console.log('Admin name in cleaned data:', cleanedData.name);
+    console.log('Original archived data name:', archivedData.name);
     
     // Restore to original collection
     const originalRef = doc(db, originalCollection, originalId);
@@ -875,11 +868,33 @@ export const restoreArchivedItem = async (archivedId) => {
     console.log('Creating document in original collection...');
     console.log('Document ID:', originalId);
     console.log('Collection:', originalCollection);
-    console.log('Data to restore:', Object.keys(cleanedData));
+    console.log('Data to restore (name field):', cleanedData.name);
+    
+    // Final verification: For admins, ensure name field exists
+    if (originalCollection === COLLECTIONS.ADMINS && !cleanedData.name) {
+      console.error('WARNING: Admin restore data missing name field!');
+      console.error('Archived data keys:', Object.keys(archivedData));
+      console.error('Cleaned data keys:', Object.keys(cleanedData));
+      console.error('Archived data name:', archivedData.name);
+      console.error('Archived data fullName:', archivedData.fullName);
+      
+      // Try to get name from archivedData if it exists
+      if (archivedData.name) {
+        cleanedData.name = archivedData.name;
+        console.log('Restored name from archivedData:', cleanedData.name);
+      } else if (archivedData.fullName) {
+        cleanedData.name = archivedData.fullName;
+        console.log('Using fullName as name:', cleanedData.name);
+      } else {
+        console.error('ERROR: Cannot restore admin without name field!');
+        throw new Error('Cannot restore admin: name field is missing from archived data.');
+      }
+    }
     
     // Create document in original collection with cleaned data
     await setDoc(originalRef, cleanedData);
     console.log('Successfully created document in original collection');
+    console.log('Final restored data name:', cleanedData.name);
     
     // If there are duplicate archives for the same item, delete all of them
     const archivedCollection = collection(db, COLLECTIONS.ARCHIVED);
@@ -1027,20 +1042,15 @@ export const authenticateAdmin = async (username, password) => {
           const superAdminSnap = await getDoc(superAdminRef);
           
           if (superAdminSnap.exists()) {
-            // Update last active and set isActive flag
+            // Update last active
             await updateDoc(superAdminRef, {
-              lastActive: Timestamp.now(),
-              isActive: true
+              lastActive: Timestamp.now()
             });
-            console.log('Super admin last active and isActive updated in Firestore');
+            console.log('Super admin last active updated in Firestore');
           } else {
             // Create the super admin if it doesn't exist
             console.log('Super admin not found in Firestore, creating...');
             await initializeSuperAdmin();
-            // Set isActive after initialization
-            await updateDoc(superAdminRef, {
-              isActive: true
-            });
           }
         } catch (firestoreError) {
           console.warn('Could not update super admin in Firestore (non-critical):', firestoreError);
@@ -1069,22 +1079,6 @@ export const authenticateAdmin = async (username, password) => {
     
     // Check other admins in Firestore
     try {
-      // First, check if admin is archived
-      const archivedRef = collection(db, COLLECTIONS.ARCHIVED);
-      const archivedQuery = query(
-        archivedRef,
-        where('originalCollection', '==', COLLECTIONS.ADMINS)
-      );
-      const archivedSnapshot = await getDocs(archivedQuery);
-      
-      // Check if this username is in archived collection
-      for (const archivedDoc of archivedSnapshot.docs) {
-        const archivedData = archivedDoc.data();
-        if (archivedData.username === username) {
-          throw new Error('Your account has been archived. Please contact the super administrator to restore your account access.');
-        }
-      }
-      
       const adminsRef = collection(db, COLLECTIONS.ADMINS);
       const snapshot = await getDocs(adminsRef);
       
@@ -1094,11 +1088,10 @@ export const authenticateAdmin = async (username, password) => {
         if (adminDoc.id === SUPER_ADMIN_CREDENTIALS.DOC_ID) continue;
         
         if (adminData.username === username && adminData.password === password) {
-          // Update last active and set isActive flag
+          // Update last active
           try {
             await updateDoc(adminDoc.ref, {
-              lastActive: Timestamp.now(),
-              isActive: true
+              lastActive: Timestamp.now()
             });
           } catch (updateError) {
             console.warn('Could not update last active (non-critical):', updateError);
@@ -1116,10 +1109,6 @@ export const authenticateAdmin = async (username, password) => {
       }
     } catch (firestoreError) {
       console.error('Error accessing Firestore:', firestoreError);
-      // If it's our custom archived error, re-throw it
-      if (firestoreError.message && firestoreError.message.includes('archived')) {
-        throw firestoreError;
-      }
       throw new Error('Cannot connect to database. Please check your internet connection.');
     }
     
@@ -1467,47 +1456,6 @@ export const archiveAdmin = async (adminId, reason) => {
     const adminData = adminSnap.data();
     console.log('Admin data retrieved:', Object.keys(adminData));
     
-    // Check if admin is currently logged in (active)
-    const isActive = adminData.isActive === true;
-    const lastActive = adminData.lastActive;
-    
-    // Consider admin active if:
-    // 1. isActive flag is true, OR
-    // 2. lastActive is within the last 10 minutes
-    let isCurrentlyActive = false;
-    
-    if (isActive) {
-      isCurrentlyActive = true;
-    } else if (lastActive) {
-      const lastActiveTime = lastActive.toDate ? lastActive.toDate() : new Date(lastActive);
-      const now = new Date();
-      const minutesSinceLastActive = (now - lastActiveTime) / (1000 * 60);
-      
-      // If last active was within 10 minutes, consider them active
-      if (minutesSinceLastActive < 10) {
-        isCurrentlyActive = true;
-      }
-    }
-    
-    if (isCurrentlyActive) {
-      // Don't clear any localStorage or affect current session - just throw error
-      throw new Error('This admin is currently logged in and cannot be archived. Please ask them to log out first, or wait a few minutes after they log out.');
-    }
-    
-    // CRITICAL: Validate adminId is not superadmin before archiving
-    if (adminId === SUPER_ADMIN_CREDENTIALS.DOC_ID) {
-      throw new Error('Cannot archive the fixed super admin account');
-    }
-    
-    // CRITICAL: Ensure we're not archiving superadmin data
-    if (adminData.username && adminData.username.toLowerCase() === SUPER_ADMIN_CREDENTIALS.USERNAME.toLowerCase()) {
-      throw new Error('Cannot archive account with superadmin username');
-    }
-    
-    if (adminData.role === 'SUPER_ADMIN') {
-      throw new Error('Cannot archive account with SUPER_ADMIN role');
-    }
-    
     // Add to archived collection
     const archivedData = {
       ...adminData,
@@ -1518,9 +1466,6 @@ export const archiveAdmin = async (adminId, reason) => {
     };
     
     console.log('Adding to archived collection...');
-    console.log('Archiving admin with ID:', adminId);
-    console.log('Admin username:', adminData.username);
-    console.log('Admin role:', adminData.role);
     await addDoc(collection(db, COLLECTIONS.ARCHIVED), archivedData);
     console.log('Successfully added to archived collection');
     

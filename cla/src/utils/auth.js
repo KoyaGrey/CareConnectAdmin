@@ -13,12 +13,7 @@ export const ROLES = {
  * @returns {string|null} The user role or null if not logged in
  */
 export const getCurrentRole = () => {
-  try {
-    return localStorage.getItem('userRole');
-  } catch (error) {
-    console.warn('Error reading userRole from localStorage:', error);
-    return null;
-  }
+  return localStorage.getItem('userRole');
 };
 
 /**
@@ -81,41 +76,10 @@ export const hasAccess = (allowedRoles) => {
 };
 
 /**
- * Logout user by clearing authentication data and updating Firestore
+ * Logout user by clearing authentication data
  */
 export const logout = () => {
-  // Get admin profile before clearing localStorage
-  const adminProfileStr = localStorage.getItem('adminProfile');
-  const adminId = adminProfileStr ? JSON.parse(adminProfileStr).adminId : null;
-  
-  // Clear localStorage first (non-blocking)
   localStorage.removeItem('userRole');
-  localStorage.removeItem('adminProfile');
-  
-  // Update isActive flag in Firestore (non-blocking, fire and forget)
-  if (adminId) {
-    // Use dynamic import to avoid circular dependencies
-    import('./firebase').then(({ db }) => {
-      return Promise.all([
-        import('firebase/firestore'),
-        import('./firestoreService')
-      ]).then(([{ doc, updateDoc }, { COLLECTIONS, SUPER_ADMIN_CREDENTIALS }]) => {
-        // Don't update super admin's isActive (it's always active)
-        if (adminId !== SUPER_ADMIN_CREDENTIALS.DOC_ID) {
-          const adminRef = doc(db, COLLECTIONS.ADMINS, adminId);
-          updateDoc(adminRef, {
-            isActive: false
-          }).then(() => {
-            console.log('Admin isActive flag set to false on logout');
-          }).catch((error) => {
-            console.warn('Could not update isActive flag on logout (non-critical):', error);
-          });
-        }
-      });
-    }).catch((error) => {
-        console.warn('Could not update isActive flag on logout (non-critical):', error);
-    });
-  }
 };
 
 import { authenticateAdmin, initializeSuperAdmin } from './firestoreService';
