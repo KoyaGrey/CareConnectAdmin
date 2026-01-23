@@ -9,10 +9,18 @@ export const ROLES = {
 };
 
 /**
- * Get the current user role from localStorage
+ * Get the current user role from sessionStorage (tab-specific) or localStorage
  * @returns {string|null} The user role or null if not logged in
  */
 export const getCurrentRole = () => {
+  // Check sessionStorage first (tab-specific) to prevent cross-tab interference
+  if (typeof sessionStorage !== 'undefined') {
+    const sessionRole = sessionStorage.getItem('sessionRole');
+    if (sessionRole) {
+      return sessionRole;
+    }
+  }
+  // Fallback to localStorage
   return localStorage.getItem('userRole');
 };
 
@@ -26,10 +34,19 @@ export const setUserRole = (role) => {
 
 /**
  * Check if user is logged in
+ * Uses sessionStorage first (tab-specific) to prevent cross-tab interference
  * @returns {boolean}
  */
 export const isAuthenticated = () => {
-  return !!getCurrentRole();
+  // Check sessionStorage first (tab-specific)
+  if (typeof sessionStorage !== 'undefined') {
+    const sessionRole = sessionStorage.getItem('sessionRole');
+    if (sessionRole) {
+      return true;
+    }
+  }
+  // Fallback to localStorage
+  return !!localStorage.getItem('userRole');
 };
 
 /**
@@ -80,6 +97,10 @@ export const hasAccess = (allowedRoles) => {
  */
 export const logout = () => {
   localStorage.removeItem('userRole');
+  // Also clear sessionStorage
+  if (typeof sessionStorage !== 'undefined') {
+    sessionStorage.removeItem('sessionRole');
+  }
 };
 
 import { authenticateAdmin, initializeSuperAdmin } from './firestoreService';

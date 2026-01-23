@@ -42,6 +42,7 @@ function AdminAccountManagement() {
 
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [showEditPassword, setShowEditPassword] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
   const [statusFilter, setStatusFilter] = useState('All');
@@ -87,6 +88,10 @@ function AdminAccountManagement() {
   // name validation
   const validateName = (name) => {
     if (!name.trim()) return 'Name is required';
+    // Check for digits
+    if (/\d/.test(name)) return 'Name cannot contain digits';
+    // Check for special characters (allow only letters and spaces)
+    if (/[^a-zA-Z\s]/.test(name)) return 'Name cannot contain special characters';
     const words = name.trim().split(/\s+/);
     for (const word of words) {
       if (word.length < 2) return 'Each word must be at least 2 letters';
@@ -171,6 +176,17 @@ function AdminAccountManagement() {
       ...errors, 
       password: validatePassword(value),
       confirmPassword: formData.confirmPassword ? validateConfirmPassword(formData.confirmPassword, value) : errors.confirmPassword
+    });
+  };
+
+  // Handle password input for edit mode (optional password)
+  const handleEditPasswordChange = (e) => {
+    const value = e.target.value;
+    setFormData({ ...formData, password: value });
+    // Only validate if password is provided
+    setErrors({ 
+      ...errors, 
+      password: value ? validatePassword(value) : ''
     });
   };
 
@@ -324,10 +340,29 @@ function AdminAccountManagement() {
       password: '',
       status: admin.status,
     });
+    setErrors({ name: '', email: '', username: '', password: '', confirmPassword: '' });
+    setShowEditPassword(false);
     setIsEditModalOpen(true);
   };
 
   const handleUpdateAdmin = async () => {
+    // Validate all fields
+    const nameError = validateName(formData.name);
+    const emailError = validateEmail(formData.email);
+    const usernameError = validateUsername(formData.username);
+    const passwordError = formData.password ? validatePassword(formData.password) : '';
+    
+    if (nameError || emailError || usernameError || passwordError) {
+      setErrors({
+        name: nameError,
+        email: emailError,
+        username: usernameError,
+        password: passwordError,
+        confirmPassword: '',
+      });
+      return;
+    }
+
     try {
       const updates = {
         name: formData.name,
@@ -350,6 +385,7 @@ function AdminAccountManagement() {
       setIsEditModalOpen(false);
       setSelectedAdmin(null);
       setFormData({ name: '', email: '', username: '', password: '', status: 'Active' });
+      setErrors({ name: '', email: '', username: '', password: '', confirmPassword: '' });
       
       // Show success modal
       setSuccessModal({
@@ -786,18 +822,24 @@ function AdminAccountManagement() {
                 <input
                   type="text"
                   value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#143F81]"
+                  onChange={handleNameChange}
+                  className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-[#143F81] ${
+                    errors.name ? 'border-red-500' : 'border-gray-300'
+                  }`}
                 />
+                {errors.name && <p className="text-red-500 text-xs mt-1">{errors.name}</p>}
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
                 <input
                   type="email"
                   value={formData.email}
-                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#143F81]"
+                  onChange={handleEmailChange}
+                  className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-[#143F81] ${
+                    errors.email ? 'border-red-500' : 'border-gray-300'
+                  }`}
                 />
+                {errors.email && <p className="text-red-500 text-xs mt-1">{errors.email}</p>}
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Username</label>
@@ -808,22 +850,42 @@ function AdminAccountManagement() {
                     const value = e.target.value;
                     // Prevent changing username to 'superadmin'
                     if (value.toLowerCase() === 'superadmin') {
-                      alert('Username "superadmin" is reserved for the system account');
+                      setErrors({ ...errors, username: 'Username "superadmin" is reserved for the system account' });
                       return;
                     }
-                    setFormData({ ...formData, username: value });
+                    handleUsernameChange(e);
                   }}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#143F81]"
+                  className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-[#143F81] ${
+                    errors.username ? 'border-red-500' : 'border-gray-300'
+                  }`}
                 />
+                {errors.username && <p className="text-red-500 text-xs mt-1">{errors.username}</p>}
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">New Password (leave blank to keep current)</label>
-                <input
-                  type="password"
-                  value={formData.password}
-                  onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#143F81]"
-                />
+                <div className="relative">
+                  <input
+                    type={showEditPassword ? "text" : "password"}
+                    value={formData.password}
+                    onChange={handleEditPasswordChange}
+                    className={`w-full px-3 py-2 pr-10 border rounded-lg focus:outline-none focus:ring-2 focus:ring-[#143F81] ${
+                      errors.password ? 'border-red-500' : 'border-gray-300'
+                    }`}
+                  />
+                  <button 
+                    type="button" 
+                    onClick={() => setShowEditPassword(!showEditPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
+                    aria-label={showEditPassword ? "Hide password" : "Show password"}
+                  >
+                    {showEditPassword ? (
+                      <EyeSlashIcon className="w-5 h-5" />
+                    ) : (
+                      <EyeIcon className="w-5 h-5" />
+                    )}
+                  </button>
+                </div>
+                {errors.password && <p className="text-red-500 text-xs mt-1">{errors.password}</p>}
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
@@ -844,6 +906,8 @@ function AdminAccountManagement() {
                   setIsEditModalOpen(false);
                   setSelectedAdmin(null);
                   setFormData({ name: '', email: '', username: '', password: '', status: 'Active' });
+                  setErrors({ name: '', email: '', username: '', password: '', confirmPassword: '' });
+                  setShowEditPassword(false);
                 }}
               >
                 Cancel

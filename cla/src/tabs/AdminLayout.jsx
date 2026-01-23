@@ -6,7 +6,7 @@ import SuccessModal from '../component/SuccessModal';
 import { getCurrentRole, logout, ROLES } from '../utils/auth';
 import { getDoc, doc, updateDoc } from 'firebase/firestore';
 import { db } from '../utils/firebase';
-import { SUPER_ADMIN_CREDENTIALS } from '../utils/firestoreService';
+import { SUPER_ADMIN_CREDENTIALS, createLogEntry } from '../utils/firestoreService';
 import CareConnectWheelchairLogo from '../component/img/CareConnectWheelchairLogo.png';
 
 function AdminLayout({
@@ -15,8 +15,58 @@ function AdminLayout({
   onSearchChange
 }) 
 {
- 
-  const role = getCurrentRole() || ROLES.ADMIN; // fallback to "ADMIN"
+  // Use state to preserve role across re-renders - initialize once and don't let it be overwritten
+  const [role, setRole] = useState(() => {
+    const storedRole = getCurrentRole();
+    return storedRole || ROLES.ADMIN;
+  });
+  
+  // Store initial role in sessionStorage (tab-specific) to prevent cross-tab interference
+  const [sessionRole] = useState(() => {
+    const storedRole = getCurrentRole();
+    if (storedRole && typeof sessionStorage !== 'undefined') {
+      sessionStorage.setItem('sessionRole', storedRole);
+      return storedRole;
+    }
+    // Try to get from sessionStorage if localStorage was overwritten
+    if (typeof sessionStorage !== 'undefined') {
+      const sessionStored = sessionStorage.getItem('sessionRole');
+      if (sessionStored) {
+        return sessionStored;
+      }
+    }
+    return storedRole || ROLES.ADMIN;
+  });
+
+  // Function to get role - prioritize sessionStorage (tab-specific) over localStorage (shared)
+  const getRole = () => {
+    // First check sessionStorage (tab-specific)
+    if (typeof sessionStorage !== 'undefined') {
+      const sessionStored = sessionStorage.getItem('sessionRole');
+      if (sessionStored) {
+        return sessionStored;
+      }
+    }
+    // Fallback to localStorage
+    const storedRole = getCurrentRole();
+    return storedRole || ROLES.ADMIN;
+  };
+
+  // Only update role on mount, never let it be overwritten by localStorage changes from other tabs
+  useEffect(() => {
+    // Set sessionStorage on mount to preserve this tab's role
+    const currentRole = getCurrentRole();
+    if (currentRole && typeof sessionStorage !== 'undefined') {
+      sessionStorage.setItem('sessionRole', currentRole);
+      setRole(currentRole);
+    } else if (typeof sessionStorage !== 'undefined') {
+      // If localStorage was cleared, try to restore from sessionStorage
+      const sessionStored = sessionStorage.getItem('sessionRole');
+      if (sessionStored) {
+        setRole(sessionStored);
+      }
+    }
+  }, []); // Only run once on mount
 
   const navLinkBase =
     'w-full flex items-center justify-between px-4 py-3 rounded-lg text-left transition-colors';
@@ -48,56 +98,88 @@ function AdminLayout({
       try {
         setLoadingProfile(true);
         
-        // First, try to get from localStorage (set during login)
-        const storedProfile = localStorage.getItem('adminProfile');
-        if (storedProfile) {
-          try {
-            const profile = JSON.parse(storedProfile);
-            setAdminProfile({
-              fullName: profile.fullName || '',
-              email: profile.email || '',
-              username: profile.username || ''
-            });
-            setLoadingProfile(false);
-            return;
-          } catch (e) {
-            console.warn('Failed to parse stored profile:', e);
-          }
-        }
+        // Get role first (from sessionStorage or localStorage)
+        const currentRole = getRole();
         
-        // If not in localStorage, fetch from Firestore based on role
-        const currentRole = getCurrentRole();
+        // For superadmin, ALWAYS fetch from Firestore or use credentials, NEVER from localStorage
+        // This prevents cross-tab interference where another tab's login overwrites localStorage
         if (currentRole === ROLES.SUPER_ADMIN) {
-          // Fetch super admin data
-          const superAdminRef = doc(db, 'admins', SUPER_ADMIN_CREDENTIALS.DOC_ID);
-          const superAdminSnap = await getDoc(superAdminRef);
-          
-          if (superAdminSnap.exists()) {
-            const data = superAdminSnap.data();
-            setAdminProfile({
-              fullName: data.name || 'Super Administrator',
-              email: data.email || 'superadmin@careconnect.com',
-              username: data.username || SUPER_ADMIN_CREDENTIALS.USERNAME
-            });
-          } else {
-            // Fallback to default super admin data
-            setAdminProfile({
+          try {
+            // Fetch super admin data from Firestore
+            const superAdminRef = doc(db, 'admins', SUPER_ADMIN_CREDENTIALS.DOC_ID);
+            const superAdminSnap = await getDoc(superAdminRef);
+            
+            let profileData;
+            if (superAdminSnap.exists()) {
+              const data = superAdminSnap.data();
+              profileData = {
+                fullName: data.name || 'Super Administrator',
+                email: data.email || 'superadmin@careconnect.com',
+                username: data.username || SUPER_ADMIN_CREDENTIALS.USERNAME
+              };
+            } else {
+              // Fallback to default super admin data
+              profileData = {
+                fullName: 'Super Administrator',
+                email: 'superadmin@careconnect.com',
+                username: SUPER_ADMIN_CREDENTIALS.USERNAME
+              };
+            }
+            
+            setAdminProfile(profileData);
+            
+            // Store in sessionStorage for this tab (tab-specific)
+            if (typeof sessionStorage !== 'undefined') {
+              sessionStorage.setItem('adminProfile', JSON.stringify({
+                ...profileData,
+                adminId: SUPER_ADMIN_CREDENTIALS.DOC_ID
+              }));
+            }
+          } catch (error) {
+            console.error('Error fetching super admin profile:', error);
+            // Fallback to credentials
+            const profileData = {
               fullName: 'Super Administrator',
               email: 'superadmin@careconnect.com',
               username: SUPER_ADMIN_CREDENTIALS.USERNAME
-            });
+            };
+            setAdminProfile(profileData);
+            
+            // Store in sessionStorage for this tab
+            if (typeof sessionStorage !== 'undefined') {
+              sessionStorage.setItem('adminProfile', JSON.stringify({
+                ...profileData,
+                adminId: SUPER_ADMIN_CREDENTIALS.DOC_ID
+              }));
+            }
           }
         } else {
-          // For regular admins, try to get from localStorage first
-          // If not available, we'd need the admin ID - for now use stored data
-          const stored = localStorage.getItem('adminProfile');
-          if (stored) {
-            const profile = JSON.parse(stored);
-            setAdminProfile({
-              fullName: profile.fullName || 'Admin User',
-              email: profile.email || '',
-              username: profile.username || ''
-            });
+          // For regular admins, check sessionStorage first (tab-specific), then localStorage
+          let storedProfile = null;
+          if (typeof sessionStorage !== 'undefined') {
+            storedProfile = sessionStorage.getItem('adminProfile');
+          }
+          if (!storedProfile) {
+            storedProfile = localStorage.getItem('adminProfile');
+          }
+          
+          if (storedProfile) {
+            try {
+              const profile = JSON.parse(storedProfile);
+              setAdminProfile({
+                fullName: profile.fullName || 'Admin User',
+                email: profile.email || '',
+                username: profile.username || ''
+              });
+            } catch (e) {
+              console.warn('Failed to parse stored profile:', e);
+              // Fallback
+              setAdminProfile({
+                fullName: 'Admin User',
+                email: 'admin@careconnect.com',
+                username: 'admin'
+              });
+            }
           } else {
             // Fallback
             setAdminProfile({
@@ -110,7 +192,7 @@ function AdminLayout({
       } catch (error) {
         console.error('Error fetching admin profile:', error);
         // Fallback to default
-        const currentRole = getCurrentRole();
+        const currentRole = getRole();
         setAdminProfile({
           fullName: currentRole === ROLES.SUPER_ADMIN ? 'Super Administrator' : 'Admin User',
           email: currentRole === ROLES.SUPER_ADMIN ? 'superadmin@careconnect.com' : 'admin@careconnect.com',
@@ -137,9 +219,17 @@ function AdminLayout({
 
   const handleSaveProfile = async (newData) => {
     try {
-      const currentRole = getCurrentRole();
-      const storedProfile = localStorage.getItem('adminProfile');
+      const currentRole = getRole();
       let adminId = null;
+      
+      // Get adminId from sessionStorage first (tab-specific), then localStorage
+      let storedProfile = null;
+      if (typeof sessionStorage !== 'undefined') {
+        storedProfile = sessionStorage.getItem('adminProfile');
+      }
+      if (!storedProfile) {
+        storedProfile = localStorage.getItem('adminProfile');
+      }
       
       if (storedProfile) {
         const profile = JSON.parse(storedProfile);
@@ -148,7 +238,8 @@ function AdminLayout({
       
       // Update in Firestore
       if (currentRole === ROLES.SUPER_ADMIN) {
-        // Update super admin
+        // Update super admin - always use SUPER_ADMIN_CREDENTIALS.DOC_ID
+        adminId = SUPER_ADMIN_CREDENTIALS.DOC_ID;
         const superAdminRef = doc(db, 'admins', SUPER_ADMIN_CREDENTIALS.DOC_ID);
         await updateDoc(superAdminRef, {
           name: newData.fullName,
@@ -170,11 +261,16 @@ function AdminLayout({
       // Update local state
       setAdminProfile(newData);
       
-      // Update localStorage
-      localStorage.setItem('adminProfile', JSON.stringify({
+      // Update both sessionStorage (tab-specific) and localStorage
+      const profileData = {
         ...newData,
-        adminId: adminId
-      }));
+        adminId: adminId || SUPER_ADMIN_CREDENTIALS.DOC_ID
+      };
+      
+      if (typeof sessionStorage !== 'undefined') {
+        sessionStorage.setItem('adminProfile', JSON.stringify(profileData));
+      }
+      localStorage.setItem('adminProfile', JSON.stringify(profileData));
       
       console.log('Profile updated successfully:', newData);
       
@@ -208,7 +304,49 @@ function AdminLayout({
     setIsLogoutModalOpen(true);
   };
 
-  const handleLogoutConfirm = () => {
+  const handleLogoutConfirm = async () => {
+    // Log logout action before clearing data (non-blocking)
+    // Get profile from sessionStorage first (tab-specific), then localStorage
+    let adminProfile = null;
+    if (typeof sessionStorage !== 'undefined') {
+      adminProfile = sessionStorage.getItem('adminProfile');
+    }
+    if (!adminProfile) {
+      adminProfile = localStorage.getItem('adminProfile');
+    }
+    
+    if (adminProfile) {
+      try {
+        const profile = JSON.parse(adminProfile);
+        const currentRole = getRole();
+        
+        // Prepare adminInfo object to pass directly to createLogEntry
+        // This ensures the correct admin is logged, even if session is being cleared
+        const adminInfo = {
+          id: profile.adminId || '',
+          username: profile.username || '',
+          name: profile.fullName || 'Unknown Admin'
+        };
+        
+        // For superadmin, ensure we use the correct ID
+        if (currentRole === ROLES.SUPER_ADMIN) {
+          adminInfo.id = SUPER_ADMIN_CREDENTIALS.DOC_ID;
+          adminInfo.username = SUPER_ADMIN_CREDENTIALS.USERNAME;
+        }
+        
+        // Pass adminInfo directly to createLogEntry (6th parameter)
+        // This prevents it from trying to get admin info after logout has started
+        createLogEntry('LOGOUT', 'admin', adminInfo.id, adminInfo.name, {
+          username: adminInfo.username
+        }, adminInfo).catch(() => {
+          // Silently fail - don't block logout
+        });
+      } catch (error) {
+        // Silently fail - don't block logout
+        console.warn('Error logging logout:', error);
+      }
+    }
+    
     logout(); // Use centralized logout utility
     navigate('/tab/login', { replace: true });
   };
@@ -259,14 +397,14 @@ function AdminLayout({
             <span className="text-white font-semibold text-lg">CareConnect</span>
           </div>
           <p className="text-blue-200 text-xs">
-          Welcome, {role === ROLES.SUPER_ADMIN ? 'Super Admin' : 'Admin'}</p>
+          Welcome, {getRole() === ROLES.SUPER_ADMIN ? 'Super Admin' : 'Admin'}</p>
 
         </div>
 
         {/* Navigation Menu (Dashboard, Caregivers, Patients) */}
         <nav className="flex-1 p-4 space-y-1">
           <NavLink
-            to={role === 'SUPER_ADMIN' ? '/superadmin/dashboard' : '/admin/dashboard'}
+            to={getRole() === ROLES.SUPER_ADMIN ? '/superadmin/dashboard' : '/admin/dashboard'}
             className={({ isActive }) =>
               `${navLinkBase} ${isActive ? navActive : navInactive}`
             }
@@ -276,7 +414,7 @@ function AdminLayout({
           </NavLink>
 
           <NavLink
-            to={role === 'SUPER_ADMIN' ? '/superadmin/caregivers' : '/admin/caregivers'}
+            to={getRole() === ROLES.SUPER_ADMIN ? '/superadmin/caregivers' : '/admin/caregivers'}
             className={({ isActive }) =>
               `${navLinkBase} ${isActive ? navActive : navInactive}`
             }
@@ -286,7 +424,7 @@ function AdminLayout({
           </NavLink>
 
           <NavLink
-            to={role === 'SUPER_ADMIN' ? '/superadmin/patients' : '/admin/patients'}
+            to={getRole() === ROLES.SUPER_ADMIN ? '/superadmin/patients' : '/admin/patients'}
             className={({ isActive }) =>
               `${navLinkBase} ${isActive ? navActive : navInactive}`
             }
@@ -296,7 +434,7 @@ function AdminLayout({
           </NavLink>
 
           <NavLink
-            to={role === 'SUPER_ADMIN' ? '/superadmin/archive' : '/admin/archive'}
+            to={getRole() === ROLES.SUPER_ADMIN ? '/superadmin/archive' : '/admin/archive'}
             className={({ isActive }) =>
               `${navLinkBase} ${isActive ? navActive : navInactive}`
             }
@@ -305,7 +443,17 @@ function AdminLayout({
             <span className="font-medium">Archive</span>
           </NavLink>
 
-          {role === ROLES.SUPER_ADMIN && (
+          <NavLink
+            to={getRole() === ROLES.SUPER_ADMIN ? '/superadmin/logs' : '/admin/logs'}
+            className={({ isActive }) =>
+              `${navLinkBase} ${isActive ? navActive : navInactive}`
+            }
+            onClick={handleNavLinkClick}
+          >
+            <span className="font-medium">Logs</span>
+          </NavLink>
+
+          {getRole() === ROLES.SUPER_ADMIN && (
             <NavLink
               to="/superadmin/admins"
               className={({ isActive }) =>
@@ -325,17 +473,17 @@ function AdminLayout({
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col overflow-hidden bg-white w-full lg:w-auto">
         {/* Top Header Bar */}
-        <div className="bg-white border-b border-gray-200 px-4 sm:px-6 py-4 flex items-center justify-between">
+        <div className="bg-white border-b border-gray-200 px-2 sm:px-4 md:px-6 py-2 sm:py-3 md:py-4 flex items-center justify-between gap-1 sm:gap-2 min-w-0">
           {/* Hamburger Menu Button + Breadcrumb */}
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1.5 sm:gap-2 md:gap-3 min-w-0 flex-1 overflow-hidden">
             {/* Hamburger Menu Button - Visible on mobile/tablet */}
             <button
               onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-              className="lg:hidden p-2 rounded-md text-gray-600 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-[#143F81]"
+              className="lg:hidden p-1.5 sm:p-2 rounded-md text-gray-600 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-[#143F81] flex-shrink-0"
               aria-label="Toggle menu"
             >
               <svg
-                className="w-6 h-6"
+                className="w-5 h-5 sm:w-6 sm:h-6"
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
@@ -358,37 +506,39 @@ function AdminLayout({
               </svg>
             </button>
             
-            {/* Breadcrumb */}
-            <div className="flex items-center gap-2 text-sm text-gray-600">
-            <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-            </svg>
-            <span>Dashboard</span>
-            <span className="text-gray-300">/</span>
-            <span className="text-gray-900 font-medium">{pageTitle}</span>
+            {/* Breadcrumb - Show only page title on very small screens */}
+            <div className="flex items-center gap-1 sm:gap-1.5 md:gap-2 text-xs sm:text-sm text-gray-600 min-w-0">
+              <svg className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-gray-400 flex-shrink-0 hidden sm:block" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+              <span className="hidden md:inline">Dashboard</span>
+              <span className="text-gray-300 hidden md:inline">/</span>
+              <span className="text-gray-900 font-medium truncate">{pageTitle}</span>
             </div>
           </div>
 
           {/* Search + Account dropdown */}
-          <div className="flex items-center gap-2 sm:gap-4 relative">
-            <div className="relative">
+          <div className="flex items-center gap-1 sm:gap-1.5 md:gap-2 lg:gap-4 relative flex-shrink-0">
+            {/* Search - Smaller on mobile, hide on very small screens if needed */}
+            <div className="hidden sm:block relative">
               <input
                 type="text"
-                placeholder="Search accounts"
+                placeholder="Search"
                 value={searchTerm}
                 onChange={handleSearchChange}
-                className="pl-10 pr-4 py-2 rounded-lg bg-gray-50 border border-gray-200 text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#143F81] focus:border-transparent w-32 sm:w-48 md:w-64"
+                className="pl-8 md:pl-10 pr-2 md:pr-3 lg:pr-4 py-1.5 md:py-2 rounded-lg bg-gray-50 border border-gray-200 text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#143F81] focus:border-transparent w-20 sm:w-32 md:w-48 lg:w-64 text-xs sm:text-sm"
               />
-              <svg className="w-5 h-5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-4 h-4 md:w-5 md:h-5 text-gray-400 absolute left-2 md:left-3 top-1/2 -translate-y-1/2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
               </svg>
             </div>
 
+            {/* Account button - Always visible, ensure it doesn't shrink */}
             <button
               type="button"
               onClick={() => setIsAccountMenuOpen((o) => !o)}
-              className="w-10 h-10 bg-[#143F81] rounded-full flex items-center justify-center text-white font-bold relative"
-              title={adminProfile.fullName || (role === ROLES.SUPER_ADMIN ? 'Super Admin' : 'Admin')}
+              className="w-8 h-8 sm:w-9 sm:h-9 md:w-10 md:h-10 bg-[#143F81] rounded-full flex items-center justify-center text-white font-bold relative flex-shrink-0 text-xs sm:text-sm"
+              title={adminProfile.fullName || (getRole() === ROLES.SUPER_ADMIN ? 'Super Admin' : 'Admin')}
             >
               {(() => {
                 // Get initials from admin's full name
@@ -403,20 +553,20 @@ function AdminLayout({
                   }
                 }
                 // Fallback to role-based initials if name not available
-                return role === ROLES.SUPER_ADMIN ? 'SA' : 'AD';
+                return getRole() === ROLES.SUPER_ADMIN ? 'SA' : 'AD';
               })()}
             </button>
 
             {isAccountMenuOpen && (
-              <div className="absolute right-0 top-12 w-40 bg-white border border-gray-200 rounded-lg shadow-lg py-1 z-20">
+              <div className="absolute right-0 top-10 sm:top-11 md:top-12 w-32 sm:w-36 md:w-40 bg-white border border-gray-200 rounded-lg shadow-lg py-1 z-20">
                 <button
-                  className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                  className="w-full text-left px-3 sm:px-4 py-2 text-xs sm:text-sm text-gray-700 hover:bg-gray-100"
                   onClick={handleProfileClick}
                 >
                   Edit Profile
                 </button>
                 <button
-                  className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                  className="w-full text-left px-3 sm:px-4 py-2 text-xs sm:text-sm text-gray-700 hover:bg-gray-100"
                   onClick={handleLogoutClick}
                 >
                   Log out

@@ -14,6 +14,7 @@ import {
   query,
   where,
   orderBy,
+  limit,
   Timestamp,
   addDoc,
   onSnapshot,
@@ -26,7 +27,8 @@ const COLLECTIONS = {
   CAREGIVERS: 'caregivers',
   PATIENTS: 'patients',
   ARCHIVED: 'archived', // For archived accounts
-  ADMINS: 'admins' // For admin portal accounts
+  ADMINS: 'admins', // For admin portal accounts
+  LOGS: 'logs' // For system activity logs
 };
 
 // Fixed Super Admin Credentials
@@ -537,6 +539,13 @@ export const archiveCaregiver = async (caregiverId, reason) => {
     console.log('Successfully deleted from caregivers collection');
     
     console.log('Caregiver archived successfully');
+    
+    // Log the archive action
+    const caregiverName = caregiverData.fullName || caregiverData.name || caregiverId;
+    createLogEntry('ARCHIVE', 'caregiver', caregiverId, caregiverName, {
+      reason: reason,
+      originalCollection: COLLECTIONS.CAREGIVERS
+    }).catch(err => console.warn('Failed to log archive:', err));
   } catch (error) {
     console.error('Error archiving caregiver:', error);
     console.error('Error code:', error.code);
@@ -608,6 +617,13 @@ export const archivePatient = async (patientId, reason) => {
     console.log('Successfully deleted from patients collection');
     
     console.log('Patient archived successfully');
+    
+    // Log the archive action
+    const patientName = patientData.fullName || patientData.name || patientId;
+    createLogEntry('ARCHIVE', 'patient', patientId, patientName, {
+      reason: reason,
+      originalCollection: COLLECTIONS.PATIENTS
+    }).catch(err => console.warn('Failed to log archive:', err));
   } catch (error) {
     console.error('Error archiving patient:', error);
     console.error('Error code:', error.code);
@@ -911,6 +927,17 @@ export const restoreArchivedItem = async (archivedId) => {
     console.log(`Deleted ${duplicateSnap.docs.length} archive entry/entries from archived collection`);
     
     console.log(`Successfully restored ${originalId} to ${originalCollection}`);
+    
+    // Log the restore action
+    const entityName = archivedData.name || archivedData.fullName || originalId;
+    // Map collection name to entity type (remove 's' from plural)
+    const entityType = originalCollection === COLLECTIONS.ADMINS ? 'admin' :
+                      originalCollection === COLLECTIONS.CAREGIVERS ? 'caregiver' :
+                      originalCollection === COLLECTIONS.PATIENTS ? 'patient' : 'unknown';
+    createLogEntry('RESTORE', entityType, originalId, entityName, {
+      originalCollection: originalCollection,
+      restoredFrom: 'archived'
+    }).catch(err => console.warn('Failed to log restore:', err));
   } catch (error) {
     console.error('Error restoring archived item:', error);
     console.error('Error code:', error.code);
@@ -1011,6 +1038,64 @@ export const initializeSuperAdmin = async () => {
 };
 
 /**
+ * Check admin account status (for login validation)
+ * @param {string} username - The username
+ * @returns {Promise<Object>} { isArchived: boolean, isInactive: boolean, adminData: object|null }
+ */
+export const checkAdminAccountStatus = async (username) => {
+  try {
+    const normalizedUsername = username.trim().toLowerCase();
+    
+    // Skip check for super admin
+    if (normalizedUsername === SUPER_ADMIN_CREDENTIALS.USERNAME.toLowerCase()) {
+      return { isArchived: false, isInactive: false, adminData: null };
+    }
+    
+    // Check if admin is archived
+    const archivedRef = collection(db, COLLECTIONS.ARCHIVED);
+    const archivedQuery = query(
+      archivedRef,
+      where('originalCollection', '==', COLLECTIONS.ADMINS)
+    );
+    const archivedSnapshot = await getDocs(archivedQuery);
+    
+    for (const archivedDoc of archivedSnapshot.docs) {
+      const archivedData = archivedDoc.data();
+      if (archivedData.username && archivedData.username.toLowerCase() === normalizedUsername) {
+        return { 
+          isArchived: true, 
+          isInactive: false, 
+          adminData: archivedData 
+        };
+      }
+    }
+    
+    // Check if admin exists and is inactive
+    const adminsRef = collection(db, COLLECTIONS.ADMINS);
+    const adminsSnapshot = await getDocs(adminsRef);
+    
+    for (const adminDoc of adminsSnapshot.docs) {
+      const adminData = adminDoc.data();
+      if (adminDoc.id === SUPER_ADMIN_CREDENTIALS.DOC_ID) continue;
+      
+      if (adminData.username && adminData.username.toLowerCase() === normalizedUsername) {
+        const isInactive = adminData.status === 'Inactive';
+        return { 
+          isArchived: false, 
+          isInactive: isInactive, 
+          adminData: adminData 
+        };
+      }
+    }
+    
+    return { isArchived: false, isInactive: false, adminData: null };
+  } catch (error) {
+    console.error('Error checking admin account status:', error);
+    return { isArchived: false, isInactive: false, adminData: null };
+  }
+};
+
+/**
  * Authenticate admin user against Firestore
  * @param {string} username - The username
  * @param {string} password - The password
@@ -1059,7 +1144,7 @@ export const authenticateAdmin = async (username, password) => {
         
         // Return super admin data (works even if Firestore fails)
         console.log('Returning super admin data');
-        return {
+        const adminData = {
           id: SUPER_ADMIN_CREDENTIALS.DOC_ID,
           username: SUPER_ADMIN_CREDENTIALS.USERNAME,
           role: 'SUPER_ADMIN',
@@ -1067,6 +1152,13 @@ export const authenticateAdmin = async (username, password) => {
           email: 'superadmin@careconnect.com',
           isFixed: true
         };
+        
+        // Log login with actual admin data (async, non-blocking)
+        createLogEntry('LOGIN', 'admin', adminData.id, adminData.name, {
+          role: adminData.role
+        }, adminData).catch(err => console.warn('Failed to log login:', err));
+        
+        return adminData;
       } else {
         console.log('Super admin password mismatch');
         console.log('Expected:', SUPER_ADMIN_CREDENTIALS.PASSWORD);
@@ -1087,7 +1179,14 @@ export const authenticateAdmin = async (username, password) => {
         // Skip the fixed super admin (already checked above)
         if (adminDoc.id === SUPER_ADMIN_CREDENTIALS.DOC_ID) continue;
         
-        if (adminData.username === username && adminData.password === password) {
+        // Case-insensitive username comparison
+        const adminUsername = adminData.username ? adminData.username.toLowerCase() : '';
+        if (adminUsername === normalizedUsername && adminData.password === password) {
+          // Check if account is inactive
+          if (adminData.status === 'Inactive') {
+            throw new Error('ACCOUNT_INACTIVE');
+          }
+          
           // Update last active
           try {
             await updateDoc(adminDoc.ref, {
@@ -1097,18 +1196,48 @@ export const authenticateAdmin = async (username, password) => {
             console.warn('Could not update last active (non-critical):', updateError);
           }
           
-          return {
+          const returnedAdminData = {
             id: adminDoc.id,
             username: adminData.username,
             role: adminData.role || 'ADMIN',
             name: adminData.name,
             email: adminData.email,
+            status: adminData.status || 'Active',
             isFixed: false
           };
+          
+          // Log login with actual admin data (async, non-blocking)
+          createLogEntry('LOGIN', 'admin', returnedAdminData.id, returnedAdminData.name, {
+            role: returnedAdminData.role,
+            status: returnedAdminData.status
+          }, returnedAdminData).catch(err => console.warn('Failed to log login:', err));
+          
+          return returnedAdminData;
+        }
+      }
+      
+      // Check if admin is archived (only if not found in active admins)
+      const archivedRef = collection(db, COLLECTIONS.ARCHIVED);
+      const archivedQuery = query(
+        archivedRef,
+        where('originalCollection', '==', COLLECTIONS.ADMINS)
+      );
+      const archivedSnapshot = await getDocs(archivedQuery);
+      
+      for (const archivedDoc of archivedSnapshot.docs) {
+        const archivedData = archivedDoc.data();
+        // Case-insensitive username comparison
+        const archivedUsername = archivedData.username ? archivedData.username.toLowerCase() : '';
+        if (archivedUsername === normalizedUsername && archivedData.password === password) {
+          throw new Error('ACCOUNT_ARCHIVED');
         }
       }
     } catch (firestoreError) {
       console.error('Error accessing Firestore:', firestoreError);
+      // Re-throw specific errors
+      if (firestoreError.message === 'ACCOUNT_INACTIVE' || firestoreError.message === 'ACCOUNT_ARCHIVED') {
+        throw firestoreError;
+      }
       throw new Error('Cannot connect to database. Please check your internet connection.');
     }
     
@@ -1378,6 +1507,12 @@ export const addAdmin = async (adminData) => {
       console.log('Counter after creation:', verifyCounter.data().count);
     }
     
+    // Log the admin creation
+    createLogEntry('ADMIN_CREATED', 'admin', documentId, adminData.name, {
+      email: adminData.email,
+      username: adminData.username
+    }).catch(err => console.warn('Failed to log admin creation:', err));
+    
     return documentId;
   } catch (error) {
     console.error('Error adding admin:', error);
@@ -1404,11 +1539,30 @@ export const updateAdmin = async (adminId, updates) => {
     }
     
     const adminRef = doc(db, COLLECTIONS.ADMINS, adminId);
+    const adminSnap = await getDoc(adminRef);
+    const oldAdminData = adminSnap.exists() ? adminSnap.data() : {};
+    
     await updateDoc(adminRef, {
       ...updates,
       role: 'ADMIN' // Ensure role stays as ADMIN
     });
     console.log('Admin updated successfully');
+    
+    // Log the update, especially status changes
+    const adminName = updates.name || oldAdminData.name || 'Unknown Admin';
+    const logDetails = {};
+    
+    if (updates.status && updates.status !== oldAdminData.status) {
+      logDetails.statusChange = {
+        from: oldAdminData.status || 'Unknown',
+        to: updates.status
+      };
+      createLogEntry('STATUS_CHANGED', 'admin', adminId, adminName, logDetails).catch(err => console.warn('Failed to log status change:', err));
+    } else {
+      createLogEntry('ADMIN_UPDATED', 'admin', adminId, adminName, {
+        updatedFields: Object.keys(updates)
+      }).catch(err => console.warn('Failed to log admin update:', err));
+    }
   } catch (error) {
     console.error('Error updating admin:', error);
     throw error;
@@ -1475,6 +1629,12 @@ export const archiveAdmin = async (adminId, reason) => {
     console.log('Successfully deleted from admins collection');
     
     console.log('Admin archived successfully');
+    
+    // Log the archive action
+    createLogEntry('ARCHIVE', 'admin', adminId, adminData.name || 'Unknown Admin', {
+      reason: reason,
+      originalCollection: COLLECTIONS.ADMINS
+    }).catch(err => console.warn('Failed to log archive:', err));
   } catch (error) {
     console.error('Error archiving admin:', error);
     console.error('Error code:', error.code);
@@ -1488,6 +1648,249 @@ export const archiveAdmin = async (adminId, reason) => {
     } else {
       throw new Error('Failed to archive admin. Please check browser console for details.');
     }
+  }
+};
+
+/**
+ * Get current admin info from sessionStorage/localStorage and role
+ * Uses sessionStorage first (tab-specific) to prevent cross-tab interference
+ * @returns {Object|null} Admin info or null
+ */
+const getCurrentAdminInfo = async () => {
+  try {
+    // Check if localStorage/sessionStorage is available
+    if (typeof localStorage === 'undefined') {
+      return null;
+    }
+    
+    // Get role from sessionStorage first (tab-specific), then localStorage
+    let userRole = null;
+    if (typeof sessionStorage !== 'undefined') {
+      userRole = sessionStorage.getItem('sessionRole');
+    }
+    if (!userRole) {
+      userRole = localStorage.getItem('userRole');
+    }
+    
+    const adminProfile = localStorage.getItem('adminProfile');
+    
+    // If superadmin, get info from SUPER_ADMIN_CREDENTIALS or Firestore
+    if (userRole === 'SUPER_ADMIN') {
+      try {
+        const superAdminRef = doc(db, COLLECTIONS.ADMINS, SUPER_ADMIN_CREDENTIALS.DOC_ID);
+        const superAdminSnap = await getDoc(superAdminRef);
+        if (superAdminSnap.exists()) {
+          const data = superAdminSnap.data();
+          return {
+            id: SUPER_ADMIN_CREDENTIALS.DOC_ID,
+            username: SUPER_ADMIN_CREDENTIALS.USERNAME,
+            name: data.name || 'Super Administrator'
+          };
+        }
+        // Fallback to credentials
+        return {
+          id: SUPER_ADMIN_CREDENTIALS.DOC_ID,
+          username: SUPER_ADMIN_CREDENTIALS.USERNAME,
+          name: 'Super Administrator'
+        };
+      } catch (error) {
+        // Fallback to credentials if Firestore fails
+        return {
+          id: SUPER_ADMIN_CREDENTIALS.DOC_ID,
+          username: SUPER_ADMIN_CREDENTIALS.USERNAME,
+          name: 'Super Administrator'
+        };
+      }
+    }
+    
+    // For regular admins, use adminProfile - but verify it matches the role
+    if (adminProfile && userRole === 'ADMIN') {
+      const profile = JSON.parse(adminProfile);
+      if (profile && profile.adminId) {
+        return {
+          id: profile.adminId || '',
+          username: profile.username || '',
+          name: profile.fullName || 'Unknown Admin'
+        };
+      }
+    }
+    
+    return null;
+  } catch (error) {
+    // Silently fail - don't log errors that might interfere with normal operation
+    if (process.env.NODE_ENV === 'development') {
+      console.warn('Error getting current admin info:', error);
+    }
+    return null;
+  }
+};
+
+/**
+ * Create a system log entry
+ * @param {string} action - The action performed (e.g., 'LOGIN', 'ARCHIVE', 'RESTORE', 'ADMIN_CREATED', 'ADMIN_UPDATED', 'STATUS_CHANGED')
+ * @param {string} entityType - Type of entity (e.g., 'admin', 'caregiver', 'patient')
+ * @param {string} entityId - ID of the entity
+ * @param {string} entityName - Name of the entity
+ * @param {Object} details - Additional details about the action
+ * @returns {Promise<void>}
+ */
+// Track recent log entries to prevent duplicates (within 2 seconds)
+const recentLogs = new Map();
+const LOG_DEBOUNCE_MS = 2000;
+
+/**
+ * Create a system log entry
+ * @param {string} action - The action performed
+ * @param {string} entityType - Type of entity
+ * @param {string} entityId - ID of the entity
+ * @param {string} entityName - Name of the entity
+ * @param {Object} details - Additional details
+ * @param {Object} adminInfo - Optional admin info to use (for LOGIN actions, pass the actual adminData)
+ * @returns {Promise<void>}
+ */
+export const createLogEntry = async (action, entityType, entityId, entityName, details = {}, adminInfo = null) => {
+  // Make this truly non-blocking - don't await, just fire and forget
+  Promise.resolve().then(async () => {
+    try {
+      let currentAdmin;
+      
+      // If adminInfo is provided (e.g., from LOGIN), use it directly - this is the correct way
+      if (adminInfo) {
+        currentAdmin = {
+          id: adminInfo.id || '',
+          username: adminInfo.username || '',
+          name: adminInfo.name || 'Unknown Admin'
+        };
+      } else {
+        // Otherwise, get from current session (uses sessionStorage for role)
+        currentAdmin = await getCurrentAdminInfo();
+      }
+      
+      const adminName = currentAdmin ? currentAdmin.name : 'System';
+      const adminUsername = currentAdmin ? currentAdmin.username : 'system';
+      const adminId = currentAdmin ? currentAdmin.id : 'system';
+
+      // Create a unique key for this log entry to prevent duplicates
+      const logKey = `${action}-${entityType}-${entityId}-${adminId}-${Date.now()}`;
+      const recentKey = `${action}-${entityType}-${entityId}-${adminId}`;
+      
+      // Check if we recently logged the same action (within debounce time)
+      const now = Date.now();
+      const lastLogTime = recentLogs.get(recentKey);
+      if (lastLogTime && (now - lastLogTime) < LOG_DEBOUNCE_MS) {
+        // Skip duplicate log entry
+        if (process.env.NODE_ENV === 'development') {
+          console.log('Skipping duplicate log entry:', action, entityType, entityName);
+        }
+        return;
+      }
+      
+      // Mark this log as recent
+      recentLogs.set(recentKey, now);
+      
+      // Clean up old entries (keep map size reasonable)
+      if (recentLogs.size > 100) {
+        const entries = Array.from(recentLogs.entries());
+        entries.slice(0, 50).forEach(([key]) => recentLogs.delete(key));
+      }
+
+      const logData = {
+        action,
+        entityType,
+        entityId,
+        entityName,
+        performedBy: {
+          id: adminId,
+          username: adminUsername,
+          name: adminName
+        },
+        details,
+        timestamp: Timestamp.now(),
+        createdAt: Timestamp.now()
+      };
+
+      await addDoc(collection(db, COLLECTIONS.LOGS), logData);
+      if (process.env.NODE_ENV === 'development') {
+        console.log('Log entry created:', action, entityType, entityName, 'by', adminName);
+      }
+    } catch (error) {
+      // Silently fail - don't let logging errors affect the app
+      if (process.env.NODE_ENV === 'development') {
+        console.warn('Error creating log entry (non-critical):', error);
+      }
+    }
+  }).catch(() => {
+    // Silently catch any errors in the promise chain
+  });
+};
+
+/**
+ * Get all system logs
+ * @param {number} limitCount - Maximum number of logs to retrieve (default: 100)
+ * @returns {Promise<Array>} Array of log entries
+ */
+export const getLogs = async (limitCount = 100) => {
+  try {
+    const logsRef = collection(db, COLLECTIONS.LOGS);
+    const q = query(logsRef, orderBy('timestamp', 'desc'), limit(limitCount));
+    const snapshot = await getDocs(q);
+    
+    return snapshot.docs.map(doc => {
+      const data = doc.data();
+      return {
+        id: doc.id,
+        action: data.action,
+        entityType: data.entityType,
+        entityId: data.entityId,
+        entityName: data.entityName,
+        performedBy: data.performedBy || { name: 'Unknown', username: 'unknown' },
+        details: data.details || {},
+        timestamp: data.timestamp?.toDate ? data.timestamp.toDate() : new Date(data.timestamp),
+        createdAt: data.createdAt?.toDate ? data.createdAt.toDate() : new Date(data.createdAt)
+      };
+    });
+  } catch (error) {
+    console.error('Error getting logs:', error);
+    throw error;
+  }
+};
+
+/**
+ * Subscribe to system logs (real-time updates)
+ * @param {Function} callback - Callback function that receives log entries
+ * @param {number} limitCount - Maximum number of logs to retrieve (default: 100)
+ * @returns {Function} Unsubscribe function
+ */
+export const subscribeToLogs = (callback, limitCount = 100) => {
+  try {
+    const logsRef = collection(db, COLLECTIONS.LOGS);
+    const q = query(logsRef, orderBy('timestamp', 'desc'), limit(limitCount));
+    
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const logs = snapshot.docs.map(doc => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          action: data.action,
+          entityType: data.entityType,
+          entityId: data.entityId,
+          entityName: data.entityName,
+          performedBy: data.performedBy || { name: 'Unknown', username: 'unknown' },
+          details: data.details || {},
+          timestamp: data.timestamp?.toDate ? data.timestamp.toDate() : new Date(data.timestamp),
+          createdAt: data.createdAt?.toDate ? data.createdAt.toDate() : new Date(data.createdAt)
+        };
+      });
+      callback(logs);
+    }, (error) => {
+      console.error('Error in logs subscription:', error);
+      callback([]);
+    });
+    
+    return unsubscribe;
+  } catch (error) {
+    console.error('Error setting up logs subscription:', error);
+    return () => {}; // Return no-op unsubscribe function
   }
 };
 

@@ -18,6 +18,7 @@ import SuperAdminCaregiverPage from "./tabs/superadmin/SuperAdminCaregiverPage";
 import SuperAdminPatientPage from "./tabs/superadmin/SuperAdminPatientPage";
 import SuperAdminArchivePage from "./tabs/superadmin/SuperAdminArchivePage";
 import AdminAccountManagement from "./tabs/superadmin/AdminAccountManagement";
+import SuperAdminLogPage from "./tabs/superadmin/SuperAdminLogPage";
 
 export default function App() {
   return (
@@ -72,6 +73,15 @@ export default function App() {
         }
       />
 
+      <Route
+        path="/admin/logs"
+        element={
+          <ProtectedRoute allowedRoles={["ADMIN", "SUPER_ADMIN"]}>
+            <SuperAdminLogPage />
+          </ProtectedRoute>
+        }
+      />
+
       {/* SUPER ADMIN ROUTES */}
       <Route
         path="/superadmin/dashboard"
@@ -114,6 +124,15 @@ export default function App() {
         element={
           <ProtectedRoute allowedRoles={["SUPER_ADMIN"]}>
             <AdminAccountManagement />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/superadmin/logs"
+        element={
+          <ProtectedRoute allowedRoles={["SUPER_ADMIN"]}>
+            <SuperAdminLogPage />
           </ProtectedRoute>
         }
       />

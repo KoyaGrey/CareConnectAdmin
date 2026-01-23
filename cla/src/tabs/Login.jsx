@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { authenticate, setUserRole, ROLES } from '../utils/auth';
-import { authenticateAdmin } from '../utils/firestoreService';
+import { authenticateAdmin, checkAdminAccountStatus } from '../utils/firestoreService';
 import { EyeIcon, EyeSlashIcon } from "@heroicons/react/24/outline";
 import ErrorModal from '../component/ErrorModal';
 
@@ -15,6 +15,12 @@ function Login() {
 
     const [errors, setErrors] = useState({});
     const [showPassword, setShowPassword] = useState(false);
+    const [accountStatus, setAccountStatus] = useState({
+        isArchived: false,
+        isInactive: false,
+        message: ''
+    });
+    const [isCheckingStatus, setIsCheckingStatus] = useState(false);
     const [errorModal, setErrorModal] = useState({
         isOpen: false,
         title: '',
@@ -33,6 +39,58 @@ function Login() {
 
         return '';
     };
+
+    // Check account status when username and password are entered
+    useEffect(() => {
+        const checkStatus = async () => {
+            if (formData.username.trim() && formData.password.trim()) {
+                setIsCheckingStatus(true);
+                try {
+                    const status = await checkAdminAccountStatus(formData.username.trim());
+                    if (status.isArchived) {
+                        setAccountStatus({
+                            isArchived: true,
+                            isInactive: false,
+                            message: 'Your account has been archived. Please contact superadmin.'
+                        });
+                    } else if (status.isInactive) {
+                        setAccountStatus({
+                            isArchived: false,
+                            isInactive: true,
+                            message: 'Your account is inactive. Please contact superadmin.'
+                        });
+                    } else {
+                        setAccountStatus({
+                            isArchived: false,
+                            isInactive: false,
+                            message: ''
+                        });
+                    }
+                } catch (error) {
+                    console.error('Error checking account status:', error);
+                    // Reset status on error
+                    setAccountStatus({
+                        isArchived: false,
+                        isInactive: false,
+                        message: ''
+                    });
+                } finally {
+                    setIsCheckingStatus(false);
+                }
+            } else {
+                // Reset status if fields are empty
+                setAccountStatus({
+                    isArchived: false,
+                    isInactive: false,
+                    message: ''
+                });
+            }
+        };
+
+        // Debounce the check
+        const timeoutId = setTimeout(checkStatus, 500);
+        return () => clearTimeout(timeoutId);
+    }, [formData.username, formData.password]);
 
     const handleChange = (e) => {
         const { name, value } = e.target;
@@ -81,13 +139,24 @@ function Login() {
                 // Save role using centralized utility
                 setUserRole(role);
                 
+                // Also store in sessionStorage (tab-specific) to prevent cross-tab interference
+                if (typeof sessionStorage !== 'undefined') {
+                    sessionStorage.setItem('sessionRole', role);
+                }
+                
                 // Store admin profile data in localStorage for EditProfileModal
-                localStorage.setItem('adminProfile', JSON.stringify({
+                const profileData = {
                     fullName: adminData.name || 'Admin User',
                     email: adminData.email || '',
                     username: adminData.username || '',
                     adminId: adminData.id || ''
-                }));
+                };
+                localStorage.setItem('adminProfile', JSON.stringify(profileData));
+                
+                // Also store in sessionStorage (tab-specific) to prevent cross-tab interference
+                if (typeof sessionStorage !== 'undefined') {
+                    sessionStorage.setItem('adminProfile', JSON.stringify(profileData));
+                }
 
                 console.log('Login success:', role);
 
@@ -106,7 +175,14 @@ function Login() {
                 console.error('Error message:', error.message);
                 console.error('Error stack:', error.stack);
                 
-                const errorMessage = error.message || 'Invalid username or password. Please try again.';
+                let errorMessage = error.message || 'Invalid username or password. Please try again.';
+                
+                // Handle specific account status errors
+                if (error.message === 'ACCOUNT_INACTIVE') {
+                    errorMessage = 'Your account is inactive. Please contact superadmin.';
+                } else if (error.message === 'ACCOUNT_ARCHIVED') {
+                    errorMessage = 'Your account has been archived. Please contact superadmin.';
+                }
                 
                 // Show error modal instead of alert
                 setErrorModal({
@@ -140,9 +216,6 @@ function Login() {
                     onChange={handleChange}
                     className="px-5 py-4 rounded-xl outline-none bg-white w-full placeholder-black/50 font-bold"
                 />
-                {errors.username && (
-                    <p className="text-red-400 text-sm text-left">{errors.username}</p>
-                )}
 
                 <div className="relative">
                     <input
@@ -166,9 +239,6 @@ function Login() {
                         )}
                     </button>
                 </div>
-                {errors.password && (
-                    <p className="text-red-400 text-sm text-left">{errors.password}</p>
-                )}
             </div>
 
             <Link
@@ -178,11 +248,25 @@ function Login() {
                 Forgot Password?
             </Link>
             
+            {/* Account Status Warning */}
+            {accountStatus.message && (
+                <div className="mt-2 p-3 bg-yellow-100 border border-yellow-400 rounded-lg">
+                    <p className="text-yellow-800 text-sm font-semibold text-center">
+                        {accountStatus.message}
+                    </p>
+                </div>
+            )}
+            
             <button
                 onClick={handleLogin}
-                className="bg-white text-[#143F81] font-bold text-2xl md:text-xl px-9 md:px-7 py-2 rounded-xl mt-4 cursor-pointer hover:bg-gray-100"
+                disabled={accountStatus.isArchived || accountStatus.isInactive || isCheckingStatus}
+                className={`font-bold text-2xl md:text-xl px-9 md:px-7 py-2 rounded-xl mt-4 ${
+                    accountStatus.isArchived || accountStatus.isInactive || isCheckingStatus
+                        ? 'bg-gray-400 text-gray-600 cursor-not-allowed'
+                        : 'bg-white text-[#143F81] cursor-pointer hover:bg-gray-100'
+                }`}
             >
-                LOGIN
+                {isCheckingStatus ? 'CHECKING...' : 'LOGIN'}
             </button>
             
             {/* Error Modal */}

@@ -1,5 +1,5 @@
 import { Navigate, useLocation } from "react-router-dom";
-import { hasAccess, isAuthenticated } from "../utils/auth";
+import { hasAccess, isAuthenticated, getCurrentRole, ROLES } from "../utils/auth";
 import { useEffect, useState } from "react";
 
 const ProtectedRoute = ({ allowedRoles, children }) => {
@@ -8,19 +8,37 @@ const ProtectedRoute = ({ allowedRoles, children }) => {
   const [hasAccessToRoute, setHasAccessToRoute] = useState(false);
 
   useEffect(() => {
-    // Small delay to ensure localStorage is fully loaded
+    // Small delay to ensure localStorage/sessionStorage is fully loaded
     // This prevents race conditions on page refresh or browser back button
     const checkAuth = () => {
       try {
-        // Check if user is authenticated first
-        if (!isAuthenticated()) {
+        // Check role from sessionStorage first (tab-specific), then localStorage
+        let userRole = null;
+        if (typeof sessionStorage !== 'undefined') {
+          userRole = sessionStorage.getItem('sessionRole');
+        }
+        if (!userRole) {
+          userRole = getCurrentRole();
+        }
+        
+        // Check if user is authenticated
+        if (!userRole) {
           setHasAccessToRoute(false);
           setIsChecking(false);
           return;
         }
 
-        // Then check if user has access to this route
-        const access = hasAccess(allowedRoles);
+        // Check if user has access to this route
+        // Super admin has access to everything
+        if (userRole === ROLES.SUPER_ADMIN) {
+          setHasAccessToRoute(true);
+          setIsChecking(false);
+          return;
+        }
+        
+        // Check if current role is in allowed roles
+        const roles = Array.isArray(allowedRoles) ? allowedRoles : [allowedRoles];
+        const access = roles.includes(userRole);
         setHasAccessToRoute(access);
         setIsChecking(false);
       } catch (error) {
@@ -30,7 +48,7 @@ const ProtectedRoute = ({ allowedRoles, children }) => {
       }
     };
 
-    // Small timeout to ensure localStorage is ready (especially on browser back button)
+    // Small timeout to ensure storage is ready (especially on browser back button)
     const timer = setTimeout(checkAuth, 50);
     
     return () => clearTimeout(timer);
