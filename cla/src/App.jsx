@@ -26,9 +26,11 @@ export default function App() {
       {/* Redirect root to /tab/login */}
       <Route path="/" element={<Navigate to="/tab/login" replace />} />
 
+      {/* Standalone Login Route - No TabLayout */}
+      <Route path="/tab/login" element={<Login />} />
+
       {/* Auth layout */}
       <Route path="/tab" element={<TabLayout />}>
-        <Route path="login" element={<Login />} />
         <Route path="register" element={<Register />} />
         <Route path="register-success" element={<RegisterSuccess />} />
         <Route path="forgot-password" element={<ForgotPassword />} />

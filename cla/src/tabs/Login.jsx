@@ -4,6 +4,8 @@ import { authenticate, setUserRole, ROLES } from '../utils/auth';
 import { authenticateAdmin, checkAdminAccountStatus } from '../utils/firestoreService';
 import { EyeIcon, EyeSlashIcon } from "@heroicons/react/24/outline";
 import ErrorModal from '../component/ErrorModal';
+import bgApp from '../component/img/bg_app.jpeg';
+import CareConnectLogo from '../component/img/CareConnectLogo.png';
 
 function Login() {
     const navigate = useNavigate();
@@ -196,79 +198,112 @@ function Login() {
         }
     };
 
-
     const isFormValid = Object.keys(formData).every((key) => {
         return validateField(key, formData[key]) === '';
     });
 
     return (
-        <div className="p-10 text-center flex flex-col items-center">
-            <h1 className="text-white text-2xl font-semibold mb-10 tracking-wide">
-                Welcome, Admin!
-            </h1>
-
-            <div className="flex flex-col gap-4 w-70 mx-auto">
-                <input
-                    type="text"
-                    name="username"
-                    placeholder="Username"
-                    value={formData.username}
-                    onChange={handleChange}
-                    className="px-5 py-4 rounded-xl outline-none bg-white w-full placeholder-black/50 font-bold"
-                />
-
-                <div className="relative">
-                    <input
-                        type={showPassword ? "text" : "password"}
-                        name="password"
-                        placeholder="Password"
-                        value={formData.password}
-                        onChange={handleChange}
-                        className="px-5 py-4 rounded-xl outline-none bg-white w-full placeholder-black/50 font-bold"
+        <div className="flex min-h-screen items-center justify-center bg-gray-100 p-4">
+            <div className="flex w-full max-w-5xl overflow-hidden rounded-3xl bg-white shadow-2xl h-[600px]">
+                {/* Left Side - Image */}
+                <div className="hidden w-1/2 md:block relative">
+                    <img 
+                        src={bgApp} 
+                        alt="App Background" 
+                        className="h-full w-full object-cover"
                     />
-                    <button 
-                        type="button" 
-                        onClick={() => setShowPassword(!showPassword)}
-                        className="absolute right-3 top-1/2 -translate-y-1/2"
-                    >
-                        {showPassword ? (
-                            <EyeSlashIcon className="w-5 h-5" />
-                            
-                        ) : (
-                            <EyeIcon className="w-5 h-5" />
-                        )}
-                    </button>
+                </div>
+
+                {/* Right Side - Form */}
+                <div className="flex w-full flex-col justify-center px-8 md:w-1/2 md:px-16 relative">
+                    {/* Logo */}
+                    <div className="absolute top-6 left-6 md:left-12">
+                        <img 
+                            src={CareConnectLogo} 
+                            alt="CareConnect Logo" 
+                            className="h-40 w-auto" 
+                        />
+                    </div>
+
+                    <div className="mt-12">
+                        <h2 className="mb-8 text-3xl font-bold text-gray-800">Welcome, Admin</h2>
+
+                        <div className="space-y-6">
+                            {/* Username Input */}
+                            <div className="relative">
+                                <label className="text-sm font-medium text-gray-500">Username</label>
+                                <input
+                                    type="text"
+                                    name="username"
+                                    value={formData.username}
+                                    onChange={handleChange}
+                                    className="w-full border-b border-gray-300 py-2 text-lg font-medium text-gray-900 focus:border-[#143F81] focus:outline-none transition-colors"
+                                />
+                                {errors.username && <p className="mt-1 text-xs text-red-500">{errors.username}</p>}
+                            </div>
+
+                            {/* Password Input */}
+                            <div className="relative mt-4">
+                                <label className="text-sm font-medium text-gray-500">Password</label>
+                                <div className="relative">
+                                    <input
+                                        type={showPassword ? "text" : "password"}
+                                        name="password"
+                                        value={formData.password}
+                                        onChange={handleChange}
+                                        className="w-full border-b border-gray-300 py-2 text-lg font-medium text-gray-900 focus:border-[#143F81] focus:outline-none pr-10 transition-colors"
+                                    />
+                                    <button 
+                                        type="button" 
+                                        onClick={() => setShowPassword(!showPassword)}
+                                        className="absolute right-0 top-1/2 -translate-y-1/2 text-gray-400 hover:text-[#143F81] transition-colors"
+                                    >
+                                        {showPassword ? (
+                                            <EyeSlashIcon className="w-5 h-5" />
+                                        ) : (
+                                            <EyeIcon className="w-5 h-5" />
+                                        )}
+                                    </button>
+                                </div>
+                                {errors.password && <p className="mt-1 text-xs text-red-500">{errors.password}</p>}
+                            </div>
+
+                            {/* Forgot Password */}
+                            <div className="flex justify-end">
+                                <Link
+                                    to="/tab/forgot-password"
+                                    className="text-sm font-medium text-gray-500 hover:text-[#143F81] transition-colors"
+                                >
+                                    Forgot Password?
+                                </Link>
+                            </div>
+
+                            {/* Account Status Warning */}
+                            {accountStatus.message && (
+                                <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                                    <p className="text-yellow-700 text-sm text-center font-medium">
+                                        {accountStatus.message}
+                                    </p>
+                                </div>
+                            )}
+
+                            {/* Login Button */}
+                            <button
+                                onClick={handleLogin}
+                                disabled={accountStatus.isArchived || accountStatus.isInactive || isCheckingStatus}
+                                className={`w-full rounded-full py-3.5 text-lg font-bold text-white shadow-lg transition-all transform hover:scale-[1.02] ${
+                                    accountStatus.isArchived || accountStatus.isInactive || isCheckingStatus
+                                        ? 'bg-gray-400 cursor-not-allowed shadow-none hover:scale-100'
+                                        : 'bg-[#143F81] hover:bg-blue-800 hover:shadow-xl'
+                                }`}
+                            >
+                                {isCheckingStatus ? 'Checking...' : 'Login'}
+                            </button>
+                        </div>
+                    </div>
                 </div>
             </div>
 
-            <Link
-                to="/tab/forgot-password"
-                className="hover:underline w-full text-right mt-1 text-white text-sm font-semibold cursor-pointer"
-            >
-                Forgot Password?
-            </Link>
-            
-            {/* Account Status Warning */}
-            {accountStatus.message && (
-                <div className="mt-2 p-3 bg-yellow-100 border border-yellow-400 rounded-lg">
-                    <p className="text-yellow-800 text-sm font-semibold text-center">
-                        {accountStatus.message}
-                    </p>
-                </div>
-            )}
-            
-            <button
-                onClick={handleLogin}
-                disabled={accountStatus.isArchived || accountStatus.isInactive || isCheckingStatus}
-                className={`font-bold text-2xl md:text-xl px-9 md:px-7 py-2 rounded-xl mt-4 ${
-                    accountStatus.isArchived || accountStatus.isInactive || isCheckingStatus
-                        ? 'bg-gray-400 text-gray-600 cursor-not-allowed'
-                        : 'bg-white text-[#143F81] cursor-pointer hover:bg-gray-100'
-                }`}
-            >
-                {isCheckingStatus ? 'CHECKING...' : 'LOGIN'}
-            </button>
-            
             {/* Error Modal */}
             <ErrorModal
                 isOpen={errorModal.isOpen}
