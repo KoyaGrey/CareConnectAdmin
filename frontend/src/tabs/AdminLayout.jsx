@@ -7,7 +7,7 @@ import { getCurrentRole, logout, ROLES } from '../utils/auth';
 import { getDoc, doc, updateDoc } from 'firebase/firestore';
 import { db } from '../utils/firebase';
 import { SUPER_ADMIN_CREDENTIALS, createLogEntry } from '../utils/firestoreService';
-import CareConnectWheelchairLogo from '../component/img/CareConnectWheelchairLogo.png';
+import CareConnectWheelchairLogo from '../component/img/CareConnectWheelChairLogo.png';
 
 function AdminLayout({
   pageTitle = 'Overview',
