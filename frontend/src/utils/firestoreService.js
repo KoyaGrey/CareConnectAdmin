@@ -1,6 +1,7 @@
- /**
+/**
  * Firestore Service
- * Handles all Firestore operations for the admin portal
+ * Handles all Firestore operations for the admin portal.
+ * See the TABLE OF CONTENTS below to find functions by area (Caregivers, Patients, Archive, Admins, Logs).
  */
 
 import { 
@@ -38,6 +39,22 @@ const SUPER_ADMIN_CREDENTIALS = {
   PASSWORD: 'SuperAdmin@2024', // Fixed password - change this to your desired password
   DOC_ID: 'SUPER_ADMIN_FIXED' // Fixed document ID in Firestore
 };
+
+// -----------------------------------------------------------------------------
+// TABLE OF CONTENTS (search for these section headers to jump to code)
+// -----------------------------------------------------------------------------
+// CAREGIVERS .......... getCaregivers, subscribeToCaregivers, getCaregiverById, updateCaregiver
+// PATIENTS ............ getPatients, subscribeToPatients, getPatientById, updatePatient
+// ARCHIVE ............. archiveCaregiver, archivePatient, subscribeToArchivedItems,
+//                       removeDuplicateArchives, restoreArchivedItem
+// ADMINS .............. initializeSuperAdmin, checkAdminAccountStatus, authenticateAdmin,
+//                       getAdminByEmail, getAdmins, addAdmin, addPendingAdmin,
+//                       getPendingAdminByToken, verifyPendingAdmin, getPendingAdmins,
+//                       sendAdminVerificationEmail, updateAdmin, archiveAdmin, getCurrentAdminInfo
+// LOGS ................ createLogEntry, getLogs, subscribeToLogs
+// -----------------------------------------------------------------------------
+
+// -------- CAREGIVERS --------
 
 /**
  * Helper function to map caregiver data from Firestore
@@ -270,6 +287,8 @@ const mapPatientData = (doc) => {
   };
 };
 
+// -------- PATIENTS --------
+
 /**
  * Get all patients from Firestore (one-time fetch)
  * @returns {Promise<Array>} Array of patient documents
@@ -484,6 +503,8 @@ export const getPatientById = async (patientId) => {
     throw error;
   }
 };
+
+// -------- ARCHIVE --------
 
 /**
  * Archive a caregiver (move to archived collection)
@@ -729,6 +750,8 @@ export const subscribeToArchivedItems = (callback) => {
   
   return unsubscribe;
 };
+
+// (Archive section continues: removeDuplicateArchives, restoreArchivedItem)
 
 /**
  * Remove duplicate archives (keeps the most recent one)
@@ -988,6 +1011,8 @@ export const updatePatient = async (patientId, updates) => {
     throw error;
   }
 };
+
+// -------- ADMINS --------
 
 /**
  * Initialize the fixed super admin in Firestore
@@ -1936,6 +1961,8 @@ const LOG_DEBOUNCE_MS = 2000;
  * @param {Object} adminInfo - Optional admin info to use (for LOGIN actions, pass the actual adminData)
  * @returns {Promise<void>}
  */
+// -------- LOGS --------
+
 export const createLogEntry = async (action, entityType, entityId, entityName, details = {}, adminInfo = null) => {
   // Make this truly non-blocking - don't await, just fire and forget
   Promise.resolve().then(async () => {

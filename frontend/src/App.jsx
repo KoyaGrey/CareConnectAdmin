@@ -1,3 +1,8 @@
+/**
+ * App.jsx – Root router
+ * Routes: public (login, register, verify-admin) | /admin/* (ADMIN + SUPER_ADMIN) | /superadmin/* (SUPER_ADMIN only)
+ * Role checks: ProtectedRoute wraps role-restricted pages.
+ */
 import { Routes, Route, Navigate } from "react-router-dom";
 
 import TabLayout from "./tabs/___layout";

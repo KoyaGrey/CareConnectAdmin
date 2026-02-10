@@ -56,8 +56,11 @@ function AdminAccountManagement() {
   const [successModal, setSuccessModal] = useState({
     isOpen: false,
     title: '',
-    message: ''
+    message: '',
+    copyLink: ''
   });
+  const [resendingId, setResendingId] = useState(null);
+  const [copiedPendingId, setCopiedPendingId] = useState(null);
 
   // Fetch admins and pending admins from Firestore on component mount
   useEffect(() => {
@@ -318,7 +321,8 @@ function AdminAccountManagement() {
         setSuccessModal({
           isOpen: true,
           title: 'Pending admin created',
-          message: `Verification email could not be sent (${emailErr.message}). Share this link with ${formData.email} to verify: ${verificationLink}`
+          message: `Verification email could not be sent (${emailErr.message}). Share the link below with ${formData.email} to verify.`,
+          copyLink: verificationLink
         });
       }
 
@@ -496,14 +500,55 @@ function AdminAccountManagement() {
         <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-6">
           <h3 className="font-semibold text-amber-900 mb-2">Pending verification</h3>
           <p className="text-sm text-amber-800 mb-3">These admins have been sent a verification email. They will appear in the list below once they click the link in the email.</p>
-          <ul className="space-y-1 text-sm">
-            {pendingAdmins.map((p) => (
-              <li key={p.id} className="flex items-center gap-2 text-amber-900">
-                <span className="font-medium">{p.name}</span>
-                <span className="text-amber-700">({p.email})</span>
-                <span className="text-amber-600">— verification email sent</span>
-              </li>
-            ))}
+          <ul className="space-y-3 text-sm">
+            {pendingAdmins.map((p) => {
+              const verificationLink = `${typeof window !== 'undefined' ? window.location.origin : ''}/verify-admin?token=${encodeURIComponent(p.id)}`;
+              const isResending = resendingId === p.id;
+              const justCopied = copiedPendingId === p.id;
+              return (
+                <li key={p.id} className="flex flex-wrap items-center gap-2 text-amber-900">
+                  <span className="font-medium">{p.name}</span>
+                  <span className="text-amber-700">({p.email})</span>
+                  <span className="text-amber-600">— verification email sent</span>
+                  <span className="flex items-center gap-2 ml-auto">
+                    <button
+                      type="button"
+                      disabled={isResending}
+                      onClick={async () => {
+                        setResendingId(p.id);
+                        try {
+                          await sendAdminVerificationEmail(p.email, verificationLink, p.id);
+                          setSuccessModal({ isOpen: true, title: 'Email resent', message: `Verification email resent to ${p.email}.`, copyLink: '' });
+                          const [adminsData, pendingData] = await Promise.all([getAdmins(), getPendingAdmins()]);
+                          setAdmins(adminsData);
+                          setPendingAdmins(pendingData);
+                        } catch (err) {
+                          setErrorModal({ isOpen: true, title: 'Resend failed', message: err.message || 'Could not resend email. You can copy the link and send it manually.' });
+                        } finally {
+                          setResendingId(null);
+                        }
+                      }}
+                      className="px-2 py-1 rounded bg-amber-200 text-amber-900 hover:bg-amber-300 disabled:opacity-50 text-xs font-medium"
+                    >
+                      {isResending ? 'Sending…' : 'Resend email'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        try {
+                          await navigator.clipboard.writeText(verificationLink);
+                          setCopiedPendingId(p.id);
+                          setTimeout(() => setCopiedPendingId(null), 2000);
+                        } catch (_) {}
+                      }}
+                      className="px-2 py-1 rounded bg-amber-200 text-amber-900 hover:bg-amber-300 text-xs font-medium"
+                    >
+                      {justCopied ? 'Copied!' : 'Copy link'}
+                    </button>
+                  </span>
+                </li>
+              );
+            })}
           </ul>
         </div>
       )}
@@ -976,9 +1021,10 @@ function AdminAccountManagement() {
       {/* Success Modal */}
       <SuccessModal
         isOpen={successModal.isOpen}
-        onClose={() => setSuccessModal({ isOpen: false, title: '', message: '' })}
+        onClose={() => setSuccessModal({ isOpen: false, title: '', message: '', copyLink: '' })}
         title={successModal.title}
         message={successModal.message}
+        copyLink={successModal.copyLink}
       />
     </AdminLayout>
   );

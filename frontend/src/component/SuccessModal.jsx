@@ -1,10 +1,22 @@
-import React from 'react';
+import React, { useState } from 'react';
 
-function SuccessModal({ isOpen, onClose, title, message, type = 'success' }) {
+function SuccessModal({ isOpen, onClose, title, message, type = 'success', copyLink }) {
+    const [copied, setCopied] = useState(false);
     if (!isOpen) return null;
 
     const isError = type === 'error' || title?.toLowerCase().includes('fail');
-    
+
+    const handleCopyLink = async () => {
+        if (!copyLink) return;
+        try {
+            await navigator.clipboard.writeText(copyLink);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+        } catch (_) {
+            setCopied(false);
+        }
+    };
+
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={onClose}>
             <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6 transform transition-all scale-100" onClick={(e) => e.stopPropagation()}>
@@ -37,7 +49,16 @@ function SuccessModal({ isOpen, onClose, title, message, type = 'success' }) {
                     </p>
                 </div>
 
-                <div className="flex justify-end">
+                <div className="flex justify-end gap-2 flex-wrap">
+                    {copyLink && (
+                        <button
+                            type="button"
+                            onClick={handleCopyLink}
+                            className="px-4 py-2 rounded-lg border border-gray-300 bg-white text-gray-700 font-medium hover:bg-gray-50"
+                        >
+                            {copied ? 'Copied!' : 'Copy link'}
+                        </button>
+                    )}
                     <button 
                         onClick={onClose} 
                         className={`px-4 py-2 rounded-lg text-white font-medium transition-colors shadow-sm ${
