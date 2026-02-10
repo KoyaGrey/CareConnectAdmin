@@ -7,7 +7,7 @@ import { getCurrentRole, logout, ROLES } from '../utils/auth';
 import { getDoc, doc, updateDoc } from 'firebase/firestore';
 import { db } from '../utils/firebase';
 import { SUPER_ADMIN_CREDENTIALS, createLogEntry } from '../utils/firestoreService';
-import CareConnectWheelchairLogo from '../component/img/CareConnectWheelChairLogo.png';
+import CareConnectWheelChairLogo from '../component/img/CareConnectWheelChairLogo.png';
 
 function AdminLayout({
   pageTitle = 'Overview',
@@ -390,7 +390,7 @@ function AdminLayout({
           </button>
           <div className="mb-1 flex items-center gap-2">
             <img 
-              src={CareConnectWheelchairLogo} 
+              src={CareConnectWheelChairLogo} 
               alt="CareConnect Logo" 
               className="h-8 w-8"
             />
