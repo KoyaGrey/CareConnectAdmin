@@ -5,10 +5,11 @@ import Pagination from '../../component/Pagination';
 import ErrorModal from '../../component/ErrorModal';
 import SuccessModal from '../../component/SuccessModal';
 import { EyeIcon, EyeSlashIcon } from "@heroicons/react/24/outline";
-import { getAdmins, addAdmin, updateAdmin, archiveAdmin, initializeSuperAdmin } from '../../utils/firestoreService';
+import { getAdmins, addAdmin, addPendingAdmin, updateAdmin, archiveAdmin, initializeSuperAdmin, sendAdminVerificationEmail, getPendingAdmins, getCurrentAdminInfo } from '../../utils/firestoreService';
 
 function AdminAccountManagement() {
   const [admins, setAdmins] = useState([]);
+  const [pendingAdmins, setPendingAdmins] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -58,18 +59,16 @@ function AdminAccountManagement() {
     message: ''
   });
 
-  // Fetch admins from Firestore on component mount
-  // Also initialize super admin if it doesn't exist
+  // Fetch admins and pending admins from Firestore on component mount
   useEffect(() => {
-    const fetchAdmins = async () => {
+    const fetchData = async () => {
       try {
         setLoading(true);
         setError(null);
-        // Initialize super admin first
         await initializeSuperAdmin();
-        // Fetch admins (super admin is automatically filtered out)
-        const data = await getAdmins();
-        setAdmins(data);
+        const [adminsData, pendingData] = await Promise.all([getAdmins(), getPendingAdmins()]);
+        setAdmins(adminsData);
+        setPendingAdmins(pendingData);
       } catch (err) {
         console.error('Error fetching admins:', err);
         setError('Failed to load admin accounts. Please check your Firebase connection.');
@@ -78,7 +77,7 @@ function AdminAccountManagement() {
       }
     };
 
-    fetchAdmins();
+    fetchData();
   }, []);
 
   const handleSearchChange = (term) => {
@@ -254,14 +253,14 @@ function AdminAccountManagement() {
       return;
     }
 
-    // Check for duplicates before adding
-    const duplicateName = admins.find(admin => 
+    // Check for duplicates in existing admins
+    const duplicateName = admins.find(admin =>
       admin.name && admin.name.toLowerCase().trim() === formData.name.toLowerCase().trim()
     );
-    const duplicateUsername = admins.find(admin => 
+    const duplicateUsername = admins.find(admin =>
       admin.username && admin.username.toLowerCase() === formData.username.toLowerCase()
     );
-    const duplicateEmail = admins.find(admin => 
+    const duplicateEmail = admins.find(admin =>
       admin.email && admin.email.toLowerCase() === formData.email.toLowerCase()
     );
 
@@ -296,31 +295,50 @@ function AdminAccountManagement() {
     }
 
     try {
-      // Add admin to Firestore
-      await addAdmin({
-        name: formData.name,
-        email: formData.email,
-        username: formData.username,
-        password: formData.password
-      });
-      
-      // Refresh the list
-      const data = await getAdmins();
-      setAdmins(data);
-      
-      // Close modal and reset form
+      const createdBy = await getCurrentAdminInfo();
+      const { token } = await addPendingAdmin(
+        {
+          name: formData.name,
+          email: formData.email,
+          username: formData.username,
+          password: formData.password,
+        },
+        createdBy ? { id: createdBy.id, username: createdBy.username, name: createdBy.name } : null
+      );
+
+      const origin = typeof window !== 'undefined' && window.location.origin ? window.location.origin : '';
+      const verificationLink = `${origin}/verify-admin?token=${encodeURIComponent(token)}`;
+
+      let emailSent = false;
+      try {
+        await sendAdminVerificationEmail(formData.email, verificationLink, token);
+        emailSent = true;
+      } catch (emailErr) {
+        console.warn('Verification email send failed:', emailErr);
+        setSuccessModal({
+          isOpen: true,
+          title: 'Pending admin created',
+          message: `Verification email could not be sent (${emailErr.message}). Share this link with ${formData.email} to verify: ${verificationLink}`
+        });
+      }
+
+      const [adminsData, pendingData] = await Promise.all([getAdmins(), getPendingAdmins()]);
+      setAdmins(adminsData);
+      setPendingAdmins(pendingData);
+
       setIsAddModalOpen(false);
       setFormData({ name: '', email: '', username: '', password: '', confirmPassword: '', status: 'Active' });
       setErrors({ name: '', email: '', username: '', password: '', confirmPassword: '' });
       setShowPassword(false);
       setShowConfirmPassword(false);
-      
-      // Show success modal
-      setSuccessModal({
-        isOpen: true,
-        title: 'Admin Added',
-        message: `Admin account "${formData.name}" has been created successfully!`
-      });
+
+      if (emailSent) {
+        setSuccessModal({
+          isOpen: true,
+          title: 'Verification email sent',
+          message: `A verification email was sent to ${formData.email}. The admin will appear in the list once they click "Verify email" in that message.`
+        });
+      }
     } catch (err) {
       console.error('Error adding admin:', err);
       setErrorModal({
@@ -473,6 +491,22 @@ function AdminAccountManagement() {
           + Add New Admin
         </button>
       </div>
+
+      {pendingAdmins.length > 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-6">
+          <h3 className="font-semibold text-amber-900 mb-2">Pending verification</h3>
+          <p className="text-sm text-amber-800 mb-3">These admins have been sent a verification email. They will appear in the list below once they click the link in the email.</p>
+          <ul className="space-y-1 text-sm">
+            {pendingAdmins.map((p) => (
+              <li key={p.id} className="flex items-center gap-2 text-amber-900">
+                <span className="font-medium">{p.name}</span>
+                <span className="text-amber-700">({p.email})</span>
+                <span className="text-amber-600">— verification email sent</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
         <div className="bg-[#143F81] px-6 py-4 flex justify-between items-center">

@@ -1,0 +1,10 @@
+{
+  "name": "careconnect-admin-backend",
+  "private": true,
+  "version": "1.0.0",
+  "description": "CareConnect Admin backend (placeholder – add your server or Firebase functions here)",
+  "scripts": {
+    "dev": "echo \"Add your dev command (e.g. node server.js or firebase emulators)\" && exit 0",
+    "start": "echo \"Add your start command (e.g. node server.js)\" && exit 0"
+  }
+}

@@ -1,0 +1,10 @@
+// Add this block inside "match /databases/{database}/documents {" 
+// (e.g. right after the pending_signups block):
+
+    // Pending admins - email verification for new admins (admin portal)
+    match /pending_admins/{token} {
+      allow create: if true;   // Superadmin creates when adding admin
+      allow read: if true;     // Verify page reads by token
+      allow update: if true;   // Mark as verified after email click
+      allow delete: if true;   // Optional cleanup
+    }

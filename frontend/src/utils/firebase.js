@@ -10,7 +10,7 @@
 
 import { initializeApp } from 'firebase/app';
 import { getFirestore } from 'firebase/firestore';
-import { getAuth } from 'firebase/auth';
+import { getAuth, signInWithPopup, GoogleAuthProvider } from 'firebase/auth';
 
 // TODO: Replace with your Firebase Web App config
 // IMPORTANT: You're currently using the Android app ID - this won't work!
@@ -44,5 +44,15 @@ export const db = getFirestore(app);
 
 // Initialize Auth (if needed for admin authentication)
 export const auth = getAuth(app);
+
+/**
+ * Sign in with Google. Always shows the account picker (select_account).
+ * @returns {Promise<import('firebase/auth').UserCredential>}
+ */
+export const signInWithGoogle = () => {
+  const provider = new GoogleAuthProvider();
+  provider.setCustomParameters({ prompt: 'select_account' });
+  return signInWithPopup(auth, provider);
+};
 
 export default app;

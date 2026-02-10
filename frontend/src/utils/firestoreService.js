@@ -28,6 +28,7 @@ const COLLECTIONS = {
   PATIENTS: 'patients',
   ARCHIVED: 'archived', // For archived accounts
   ADMINS: 'admins', // For admin portal accounts
+  PENDING_ADMINS: 'pending_admins', // Admin accounts waiting for email verification
   LOGS: 'logs' // For system activity logs
 };
 
@@ -1249,6 +1250,34 @@ export const authenticateAdmin = async (username, password) => {
 };
 
 /**
+ * Find an admin by email (e.g. for Google sign-in). Excludes archived/inactive checks; caller should handle.
+ * @param {string} email - Admin email (case-insensitive match)
+ * @returns {Promise<Object|null>} Admin data or null if not found
+ */
+export const getAdminByEmail = async (email) => {
+  if (!email || !email.trim()) return null;
+  const normalizedEmail = email.trim().toLowerCase();
+  const adminsRef = collection(db, COLLECTIONS.ADMINS);
+  const snapshot = await getDocs(adminsRef);
+  for (const adminDoc of snapshot.docs) {
+    const data = adminDoc.data();
+    const adminEmail = (data.email || '').trim().toLowerCase();
+    if (adminEmail === normalizedEmail) {
+      return {
+        id: adminDoc.id,
+        username: data.username || '',
+        role: data.role || 'ADMIN',
+        name: data.name || 'Admin User',
+        email: data.email || '',
+        status: data.status || 'Active',
+        isFixed: adminDoc.id === SUPER_ADMIN_CREDENTIALS.DOC_ID
+      };
+    }
+  }
+  return null;
+};
+
+/**
  * Get all admin accounts from Firestore (excluding super admin)
  * @returns {Promise<Array>} Array of admin documents (without super admin)
  */
@@ -1521,6 +1550,165 @@ export const addAdmin = async (adminData) => {
 };
 
 /**
+ * Generate a random token for email verification (UUID-like)
+ */
+const generateVerificationToken = () => {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+};
+
+/**
+ * Add a pending admin (waiting for email verification). Call this when superadmin clicks "Add Admin".
+ * Admin will be created in `admins` only after they click the verification link.
+ * @param {Object} adminData - { name, email, username, password }
+ * @param {Object} createdByInfo - { id, username, name } of superadmin (for logging)
+ * @returns {Promise<{ token: string, expiresAt: number }>}
+ */
+export const addPendingAdmin = async (adminData, createdByInfo = null) => {
+  const email = (adminData.email || '').trim().toLowerCase();
+  const username = (adminData.username || '').trim();
+  if (!email || !username) throw new Error('Email and username are required.');
+
+  // Check pending_admins for same email or username
+  const pendingRef = collection(db, COLLECTIONS.PENDING_ADMINS);
+  const pendingSnap = await getDocs(query(pendingRef, where('verified', '==', false)));
+  for (const d of pendingSnap.docs) {
+    const data = d.data();
+    if ((data.email || '').toLowerCase() === email) throw new Error(`A verification email was already sent to ${adminData.email}. Ask them to verify or wait for the link to expire.`);
+    if ((data.username || '').toLowerCase() === username.toLowerCase()) throw new Error(`Username "${username}" is already pending verification.`);
+  }
+
+  const token = generateVerificationToken();
+  const expiresAt = Date.now() + 24 * 60 * 60 * 1000; // 24 hours
+
+  const docRef = doc(db, COLLECTIONS.PENDING_ADMINS, token);
+  const pendingData = {
+    name: adminData.name,
+    email,
+    username,
+    password: adminData.password,
+    verificationToken: token,
+    expiresAt,
+    createdAt: Timestamp.now(),
+    verified: false,
+    createdBy: createdByInfo ? { id: createdByInfo.id, username: createdByInfo.username, name: createdByInfo.name } : null,
+  };
+
+  await setDoc(docRef, pendingData);
+  return { token, expiresAt };
+};
+
+/**
+ * Get a pending admin by verification token (for the verify page)
+ * @param {string} token
+ * @returns {Promise<Object|null>} { name, email, username, password, ... } or null
+ */
+export const getPendingAdminByToken = async (token) => {
+  if (!token || !token.trim()) return null;
+  const pendingRef = doc(db, COLLECTIONS.PENDING_ADMINS, token.trim());
+  const snap = await getDoc(pendingRef);
+  if (!snap.exists()) return null;
+  const data = snap.data();
+  return { id: snap.id, ...data };
+};
+
+/**
+ * Verify a pending admin: create the admin in `admins` and mark pending as verified.
+ * @param {string} token
+ * @returns {Promise<{ adminId: string, name: string }>}
+ */
+export const verifyPendingAdmin = async (token) => {
+  const pending = await getPendingAdminByToken(token);
+  if (!pending) throw new Error('Invalid or expired verification link.');
+  if (pending.verified) throw new Error('This link has already been used. You can log in.');
+  if (pending.expiresAt && Date.now() > pending.expiresAt) throw new Error('This verification link has expired. Please ask the superadmin to add you again.');
+
+  const { name, email, username, password } = pending;
+  if (!name || !email || !username || !password) throw new Error('Invalid signup data.');
+
+  // Create the admin in the main admins collection (reuse addAdmin logic)
+  const adminId = await addAdmin({ name, email, username, password });
+
+  // Mark pending as verified
+  const pendingRef = doc(db, COLLECTIONS.PENDING_ADMINS, token);
+  await updateDoc(pendingRef, {
+    verified: true,
+    verifiedAt: Timestamp.now(),
+    adminId,
+  });
+
+  return { adminId, name };
+};
+
+/**
+ * Get all pending admins (for superadmin "Pending" section)
+ * @returns {Promise<Array<{ id, name, email, username, createdAt }>>}
+ */
+export const getPendingAdmins = async () => {
+  const ref = collection(db, COLLECTIONS.PENDING_ADMINS);
+  const q = query(ref, where('verified', '==', false));
+  const snapshot = await getDocs(q);
+  return snapshot.docs
+    .map((d) => {
+      const data = d.data();
+      const expiresAt = data.expiresAt;
+      const expired = expiresAt && Date.now() > expiresAt;
+      return {
+        id: d.id,
+        name: data.name || '',
+        email: data.email || '',
+        username: data.username || '',
+        createdAt: data.createdAt?.toDate?.() || null,
+        expiresAt: expiresAt || null,
+        expired,
+      };
+    })
+    .filter((p) => !p.expired); // Optionally hide expired in UI
+};
+
+/**
+ * Send verification email for a pending admin. Calls the same API as CareConnect app (EmailJS via Vercel).
+ * Set VITE_VERIFICATION_EMAIL_API_URL in .env to your API URL (e.g. Vercel serverless).
+ * @param {string} email
+ * @param {string} verificationLink - Full URL the admin will click
+ * @param {string} token
+ * @returns {Promise<void>}
+ */
+export const sendAdminVerificationEmail = async (email, verificationLink, token) => {
+  const apiUrl = typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_VERIFICATION_EMAIL_API_URL;
+  const url = (typeof apiUrl === 'string' && apiUrl.trim()) ? apiUrl.trim() : null;
+  if (!url) {
+    console.warn('VITE_VERIFICATION_EMAIL_API_URL not set. Verification email not sent. Link:', verificationLink);
+    return;
+  }
+
+  const body = JSON.stringify({
+    email,
+    verification_link: verificationLink,
+    token,
+    role: 'admin',
+  });
+
+  const headers = { 'Content-Type': 'application/json' };
+  const apiKey = typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_VERIFICATION_EMAIL_API_KEY;
+  if (typeof apiKey === 'string' && apiKey.trim()) headers['X-API-Key'] = apiKey.trim();
+
+  const res = await fetch(url, { method: 'POST', headers, body });
+  const text = await res.text();
+  if (!res.ok) {
+    let errMsg = text;
+    try {
+      const j = JSON.parse(text);
+      if (j && j.error) errMsg = j.error;
+    } catch (_) {}
+    throw new Error(errMsg || `Email API returned ${res.status}`);
+  }
+};
+
+/**
  * Update an admin in Firestore
  * @param {string} adminId - The admin document ID
  * @param {Object} updates - Fields to update
@@ -1656,7 +1844,7 @@ export const archiveAdmin = async (adminId, reason) => {
  * Uses sessionStorage first (tab-specific) to prevent cross-tab interference
  * @returns {Object|null} Admin info or null
  */
-const getCurrentAdminInfo = async () => {
+export const getCurrentAdminInfo = async () => {
   try {
     // Check if localStorage/sessionStorage is available
     if (typeof localStorage === 'undefined') {

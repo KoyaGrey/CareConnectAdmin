@@ -1,0 +1,15 @@
+# Dependencies
+node_modules/
+
+# Legacy folder – safe to delete; app lives in frontend/
+cla/
+
+# Build output
+dist/
+*.local
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea
+.vscode/

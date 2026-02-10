@@ -19,6 +19,7 @@ import SuperAdminPatientPage from "./tabs/superadmin/SuperAdminPatientPage";
 import SuperAdminArchivePage from "./tabs/superadmin/SuperAdminArchivePage";
 import AdminAccountManagement from "./tabs/superadmin/AdminAccountManagement";
 import SuperAdminLogPage from "./tabs/superadmin/SuperAdminLogPage";
+import VerifyAdmin from "./tabs/VerifyAdmin";
 
 export default function App() {
   return (
@@ -26,12 +27,18 @@ export default function App() {
       {/* Redirect root to /tab/login */}
       <Route path="/" element={<Navigate to="/tab/login" replace />} />
 
+      {/* Public verify-admin link (from email) - can use /verify-admin or /tab/verify-admin */}
+      <Route path="/verify-admin" element={<TabLayout />}>
+        <Route index element={<VerifyAdmin />} />
+      </Route>
+
       {/* Standalone Login Route - No TabLayout */}
       <Route path="/tab/login" element={<Login />} />
 
       {/* Auth layout */}
       <Route path="/tab" element={<TabLayout />}>
         <Route path="register" element={<Register />} />
+        <Route path="verify-admin" element={<VerifyAdmin />} />
         <Route path="register-success" element={<RegisterSuccess />} />
         <Route path="forgot-password" element={<ForgotPassword />} />
         <Route path="verification" element={<Verification />} />
