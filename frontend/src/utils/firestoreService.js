@@ -1597,6 +1597,13 @@ export const addPendingAdmin = async (adminData, createdByInfo = null) => {
   const username = (adminData.username || '').trim();
   if (!email || !username) throw new Error('Email and username are required.');
 
+  // Check existing admins: email/username must not already exist
+  const existingAdmins = await getAdmins();
+  const emailAlreadyAdmin = existingAdmins.some(a => (a.email || '').toLowerCase() === email);
+  const usernameAlreadyAdmin = existingAdmins.some(a => (a.username || '').toLowerCase() === username.toLowerCase());
+  if (emailAlreadyAdmin) throw new Error(`This email is already registered as an admin. Use a different email address.`);
+  if (usernameAlreadyAdmin) throw new Error(`Username "${username}" is already in use by an admin.`);
+
   // Check pending_admins for same email or username
   const pendingRef = collection(db, COLLECTIONS.PENDING_ADMINS);
   const pendingSnap = await getDocs(query(pendingRef, where('verified', '==', false)));

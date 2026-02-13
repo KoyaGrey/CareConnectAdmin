@@ -267,6 +267,14 @@ function AdminAccountManagement() {
       admin.email && admin.email.toLowerCase() === formData.email.toLowerCase()
     );
 
+    // Check for duplicate in pending (same email already awaiting verification)
+    const duplicatePendingEmail = pendingAdmins.find(p =>
+      (p.email || '').toLowerCase() === (formData.email || '').trim().toLowerCase()
+    );
+    const duplicatePendingUsername = pendingAdmins.find(p =>
+      (p.username || '').toLowerCase() === (formData.username || '').trim().toLowerCase()
+    );
+
     if (duplicateName) {
       setErrorModal({
         isOpen: true,
@@ -291,9 +299,29 @@ function AdminAccountManagement() {
       setErrorModal({
         isOpen: true,
         title: 'Duplicate Email',
-        message: `Email "${formData.email}" is already in use. Please use a different email address.`
+        message: `Email "${formData.email}" is already registered as an admin. Please use a different email address.`
       });
       setErrors(prev => ({ ...prev, email: 'Email already exists' }));
+      return;
+    }
+
+    if (duplicatePendingEmail) {
+      setErrorModal({
+        isOpen: true,
+        title: 'Email Already Pending',
+        message: `A verification link was already sent to "${formData.email}". They must use that link to verify, or wait for it to expire (24 hours) before you can add them again. You can resend the link from the "Pending verification" section below.`
+      });
+      setErrors(prev => ({ ...prev, email: 'Email already pending verification' }));
+      return;
+    }
+
+    if (duplicatePendingUsername) {
+      setErrorModal({
+        isOpen: true,
+        title: 'Username Already Pending',
+        message: `Username "${formData.username}" is already pending verification. Use a different username or wait for the existing link to expire.`
+      });
+      setErrors(prev => ({ ...prev, username: 'Username already pending' }));
       return;
     }
 

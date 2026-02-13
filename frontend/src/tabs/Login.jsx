@@ -32,10 +32,6 @@ function Login() {
     });
 
     const validateField = (name, value) => {
-        if (name === 'username') {
-            if (!value.trim()) return 'Username is required';
-        }
-
         if (name === 'password') {
             if (!value) return 'Password is required';
         }

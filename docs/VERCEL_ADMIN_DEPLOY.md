@@ -29,17 +29,19 @@ Vercel will detect the repo. You must set the **root** so it builds the frontend
 
 ---
 
-## Step 4: Add environment variable
+## Step 4: Add environment variables
 
 Before clicking Deploy:
 
 1. Expand **Environment Variables** (or **Configure**).
-2. Add one variable:
-   - **Name:** `VITE_VERIFICATION_EMAIL_API_URL`
-   - **Value:** `https://care-connect-android.vercel.app/api/sendVerificationEmail`
-   - **Environment:** Production (and Preview if you want).
+2. Add these variables (same flow as CareConnect-Android email verification):
 
-If your CareConnect API uses a different URL, use that instead.
+   | Name | Value | Notes |
+   |------|--------|--------|
+   | `VITE_VERIFICATION_EMAIL_API_URL` | `https://care-connect-android.vercel.app/api/sendVerificationEmail` | Same API as the CareConnect app (`api/sendVerificationEmail.js`). |
+   | `VITE_VERIFICATION_EMAIL_API_KEY` | *(same as CareConnect Vercel)* | Copy the value of **ASSISTANCE_API_KEY** from the **CareConnect-Android** Vercel project (Settings → Environment Variables). The admin app sends it as `X-API-Key`; the API rejects requests if it doesn’t match. |
+
+If your CareConnect API uses a different URL, use that instead. The API key must always match the CareConnect project’s `ASSISTANCE_API_KEY`.
 
 ---
 
@@ -67,6 +69,7 @@ If your CareConnect API uses a different URL, use that instead.
 | Repo imported (CareConnectAdmin) | ☐ |
 | Root Directory = `frontend` | ☐ |
 | `VITE_VERIFICATION_EMAIL_API_URL` set | ☐ |
+| `VITE_VERIFICATION_EMAIL_API_KEY` set (same as CareConnect `ASSISTANCE_API_KEY`) | ☐ |
 | Deploy successful | ☐ |
 | Login and add-admin tested on live URL | ☐ |
 
