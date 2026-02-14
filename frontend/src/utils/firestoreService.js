@@ -1343,11 +1343,6 @@ export const getAdmins = async () => {
 };
 
 /**
- * Add a new admin to Firestore
- * @param {Object} adminData - Admin data (name, email, username, password)
- * @returns {Promise<string>} The document ID of the created admin
- */
-/**
  * Initialize the admin counter
  * If counter doesn't exist, create it with count: 0
  * If it exists, check existing admins and set to highest sequential number
@@ -1478,41 +1473,51 @@ const getNextAdminNumber = async () => {
   }
 };
 
-export const addAdmin = async (adminData) => {
+/**
+ * Add a new admin to Firestore
+ * @param {Object} adminData - Admin data (name, email, username, password)
+ * @param {{ fromVerification?: boolean }} [options] - If fromVerification true, skip duplicate check (pending was already validated)
+ * @returns {Promise<string>} The document ID of the created admin
+ */
+export const addAdmin = async (adminData, options = {}) => {
   try {
     // Prevent creating another super admin
     if (adminData.username.toLowerCase() === SUPER_ADMIN_CREDENTIALS.USERNAME.toLowerCase()) {
       throw new Error('Username "superadmin" is reserved for the system account');
     }
-    
-    // Check if name, username, or email already exists
-    const adminsRef = collection(db, COLLECTIONS.ADMINS);
-    const snapshot = await getDocs(adminsRef);
-    
-    for (const adminDoc of snapshot.docs) {
-      const data = adminDoc.data();
-      // Skip super admin when checking
-      if (adminDoc.id === SUPER_ADMIN_CREDENTIALS.DOC_ID) continue;
-      
-      // Check for duplicate full name (case-insensitive, trimmed)
-      const existingName = data.name || data.fullName;
-      const newName = adminData.name || adminData.fullName;
-      if (existingName && newName && 
-          existingName.toLowerCase().trim() === newName.toLowerCase().trim()) {
-        throw new Error(`Full name "${newName}" already exists`);
-      }
-      
-      // Check for duplicate username (case-insensitive)
-      if (data.username && data.username.toLowerCase() === adminData.username.toLowerCase()) {
-        throw new Error(`Username "${adminData.username}" already exists`);
-      }
-      
-      // Check for duplicate email (case-insensitive)
-      if (data.email && data.email.toLowerCase() === adminData.email.toLowerCase()) {
-        throw new Error(`Email "${adminData.email}" is already in use`);
+
+    const skipDuplicateCheck = options.fromVerification === true;
+
+    // Check if name, username, or email already exists (skip when creating from verification - already validated)
+    if (!skipDuplicateCheck) {
+      const adminsRef = collection(db, COLLECTIONS.ADMINS);
+      const snapshot = await getDocs(adminsRef);
+
+      for (const adminDoc of snapshot.docs) {
+        const data = adminDoc.data();
+        // Skip super admin when checking
+        if (adminDoc.id === SUPER_ADMIN_CREDENTIALS.DOC_ID) continue;
+
+        // Check for duplicate full name (case-insensitive, trimmed)
+        const existingName = data.name || data.fullName;
+        const newName = adminData.name || adminData.fullName;
+        if (existingName && newName &&
+            existingName.toLowerCase().trim() === newName.toLowerCase().trim()) {
+          throw new Error(`Full name "${newName}" already exists`);
+        }
+
+        // Check for duplicate username (case-insensitive)
+        if (data.username && data.username.toLowerCase() === adminData.username.toLowerCase()) {
+          throw new Error(`Username "${adminData.username}" already exists`);
+        }
+
+        // Check for duplicate email (case-insensitive)
+        if (data.email && data.email.toLowerCase() === adminData.email.toLowerCase()) {
+          throw new Error(`Email "${adminData.email}" is already in use`);
+        }
       }
     }
-    
+
     // Ensure counter exists (only initialize if it doesn't exist, don't reset it)
     const counterRef = doc(db, 'counters', 'admins');
     const counterDoc = await getDoc(counterRef);
@@ -1604,13 +1609,27 @@ export const addPendingAdmin = async (adminData, createdByInfo = null) => {
   if (emailAlreadyAdmin) throw new Error(`This email is already registered as an admin. Use a different email address.`);
   if (usernameAlreadyAdmin) throw new Error(`Username "${username}" is already in use by an admin.`);
 
-  // Check pending_admins for same email or username
+  // Check pending_admins for same email or username (remove expired so we can re-add)
   const pendingRef = collection(db, COLLECTIONS.PENDING_ADMINS);
   const pendingSnap = await getDocs(query(pendingRef, where('verified', '==', false)));
   for (const d of pendingSnap.docs) {
     const data = d.data();
-    if ((data.email || '').toLowerCase() === email) throw new Error(`A verification email was already sent to ${adminData.email}. Ask them to verify or wait for the link to expire.`);
-    if ((data.username || '').toLowerCase() === username.toLowerCase()) throw new Error(`Username "${username}" is already pending verification.`);
+    const expiresAt = data.expiresAt;
+    const expired = expiresAt && Date.now() > expiresAt;
+    if ((data.email || '').toLowerCase() === email) {
+      if (expired) {
+        await deleteDoc(doc(db, COLLECTIONS.PENDING_ADMINS, d.id));
+      } else {
+        throw new Error(`A verification email was already sent to ${adminData.email}. Ask them to verify or wait for the link to expire. You can remove them from "Pending verification" below to send a new email.`);
+      }
+    }
+    if ((data.username || '').toLowerCase() === username.toLowerCase()) {
+      if (expired) {
+        await deleteDoc(doc(db, COLLECTIONS.PENDING_ADMINS, d.id));
+      } else {
+        throw new Error(`Username "${username}" is already pending verification. Remove them from "Pending verification" below or wait for the link to expire.`);
+      }
+    }
   }
 
   const token = generateVerificationToken();
@@ -1649,26 +1668,44 @@ export const getPendingAdminByToken = async (token) => {
 
 /**
  * Verify a pending admin: create the admin in `admins` and mark pending as verified.
+ * Uses a transaction to "claim" the verification first so concurrent calls (e.g. double-mount) only create one admin.
  * @param {string} token
  * @returns {Promise<{ adminId: string, name: string }>}
  */
 export const verifyPendingAdmin = async (token) => {
-  const pending = await getPendingAdminByToken(token);
-  if (!pending) throw new Error('Invalid or expired verification link.');
-  if (pending.verified) throw new Error('This link has already been used. You can log in.');
-  if (pending.expiresAt && Date.now() > pending.expiresAt) throw new Error('This verification link has expired. Please ask the superadmin to add you again.');
+  const trimmedToken = token.trim();
+  const pendingRef = doc(db, COLLECTIONS.PENDING_ADMINS, trimmedToken);
 
-  const { name, email, username, password } = pending;
-  if (!name || !email || !username || !password) throw new Error('Invalid signup data.');
+  // Atomically claim this verification: only one caller can set verified: true
+  const claimed = await runTransaction(db, async (transaction) => {
+    const snap = await transaction.get(pendingRef);
+    if (!snap.exists()) return null;
+    const data = snap.data();
+    if (data.verified) return { alreadyVerified: true, adminId: data.adminId, name: data.name || '' };
+    if (data.expiresAt && Date.now() > data.expiresAt) return { expired: true };
+    const { name, email, username, password } = data;
+    if (!name || !email || !username || !password) return { invalid: true };
 
-  // Create the admin in the main admins collection (reuse addAdmin logic)
-  const adminId = await addAdmin({ name, email, username, password });
+    transaction.update(pendingRef, {
+      verified: true,
+      verifiedAt: Timestamp.now(),
+    });
+    return { claimed: true, name, email, username, password };
+  });
 
-  // Mark pending as verified
-  const pendingRef = doc(db, COLLECTIONS.PENDING_ADMINS, token);
+  if (!claimed) throw new Error('Invalid or expired verification link.');
+  if (claimed.expired) throw new Error('This verification link has expired. Please ask the superadmin to add you again.');
+  if (claimed.invalid) throw new Error('Invalid signup data.');
+  if (claimed.alreadyVerified) {
+    if (claimed.adminId) return { adminId: claimed.adminId, name: claimed.name };
+    throw new Error('This link has already been used. You can log in.');
+  }
+
+  // We claimed this verification; create the admin and store adminId on pending (skip duplicate check - already validated in pending)
+  const { name, email, username, password } = claimed;
+  const adminId = await addAdmin({ name, email, username, password }, { fromVerification: true });
+
   await updateDoc(pendingRef, {
-    verified: true,
-    verifiedAt: Timestamp.now(),
     adminId,
   });
 
@@ -1676,14 +1713,18 @@ export const verifyPendingAdmin = async (token) => {
 };
 
 /**
- * Get all pending admins (for superadmin "Pending" section)
- * @returns {Promise<Array<{ id, name, email, username, createdAt }>>}
+ * Remove a pending admin (so the same email can be added again and receive a new verification email).
+ * @param {string} pendingId - The pending doc ID (token)
+ * @returns {Promise<void>}
  */
-export const getPendingAdmins = async () => {
-  const ref = collection(db, COLLECTIONS.PENDING_ADMINS);
-  const q = query(ref, where('verified', '==', false));
-  const snapshot = await getDocs(q);
-  return snapshot.docs
+export const removePendingAdmin = async (pendingId) => {
+  if (!pendingId || !pendingId.trim()) throw new Error('Invalid pending admin id.');
+  const ref = doc(db, COLLECTIONS.PENDING_ADMINS, pendingId.trim());
+  await deleteDoc(ref);
+};
+
+const mapPendingSnapshot = (docs) =>
+  docs
     .map((d) => {
       const data = d.data();
       const expiresAt = data.expiresAt;
@@ -1698,7 +1739,31 @@ export const getPendingAdmins = async () => {
         expired,
       };
     })
-    .filter((p) => !p.expired); // Optionally hide expired in UI
+    .filter((p) => true);
+
+/**
+ * Get all pending admins (for superadmin "Pending" section)
+ * @returns {Promise<Array<{ id, name, email, username, createdAt }>>}
+ */
+export const getPendingAdmins = async () => {
+  const ref = collection(db, COLLECTIONS.PENDING_ADMINS);
+  const q = query(ref, where('verified', '==', false));
+  const snapshot = await getDocs(q);
+  return mapPendingSnapshot(snapshot.docs);
+};
+
+/**
+ * Subscribe to pending admins in real time. When an admin verifies, they disappear from the list automatically.
+ * @param {function(Array): void} callback - Called with pending admins array on initial load and on every change
+ * @returns {function()} Unsubscribe function
+ */
+export const subscribeToPendingAdmins = (callback) => {
+  const ref = collection(db, COLLECTIONS.PENDING_ADMINS);
+  const q = query(ref, where('verified', '==', false));
+  const unsubscribe = onSnapshot(q, (snapshot) => {
+    callback(mapPendingSnapshot(snapshot.docs));
+  });
+  return unsubscribe;
 };
 
 /**
@@ -1726,7 +1791,12 @@ export const sendAdminVerificationEmail = async (email, verificationLink, token)
 
   const headers = { 'Content-Type': 'application/json' };
   const apiKey = typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_VERIFICATION_EMAIL_API_KEY;
-  if (typeof apiKey === 'string' && apiKey.trim()) headers['X-API-Key'] = apiKey.trim();
+  const hasKey = typeof apiKey === 'string' && apiKey.trim().length > 0;
+  if (hasKey) headers['X-API-Key'] = apiKey.trim();
+
+  if (!hasKey && typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.DEV) {
+    console.warn('[CareConnect Admin] VITE_VERIFICATION_EMAIL_API_KEY is not set. For production, set it in Vercel (same value as ASSISTANCE_API_KEY) and redeploy with "Clear cache".');
+  }
 
   const res = await fetch(url, { method: 'POST', headers, body });
   const text = await res.text();
@@ -1736,6 +1806,9 @@ export const sendAdminVerificationEmail = async (email, verificationLink, token)
       const j = JSON.parse(text);
       if (j && j.error) errMsg = j.error;
     } catch (_) {}
+    if (res.status === 401 && (text.includes('X-API-Key') || errMsg.includes('X-API-Key'))) {
+      errMsg = 'Invalid or missing X-API-Key. In the CareConnect Admin Vercel project, set VITE_VERIFICATION_EMAIL_API_KEY to the same value as ASSISTANCE_API_KEY (in the email API project). Then redeploy and use "Clear cache and redeploy" so the new value is in the build.';
+    }
     throw new Error(errMsg || `Email API returned ${res.status}`);
   }
 };

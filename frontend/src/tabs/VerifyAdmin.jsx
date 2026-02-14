@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { verifyPendingAdmin } from '../utils/firestoreService';
 
@@ -7,28 +7,52 @@ function VerifyAdmin() {
   const token = searchParams.get('token');
   const [status, setStatus] = useState('loading'); // 'loading' | 'success' | 'error'
   const [message, setMessage] = useState('');
+  const verificationStarted = useRef(false);
+  const isMountedRef = useRef(true);
 
   useEffect(() => {
+    isMountedRef.current = true;
+
     if (!token || !token.trim()) {
       setStatus('error');
       setMessage('Invalid verification link. No token provided.');
-      return;
+      return () => { isMountedRef.current = false; };
     }
 
-    let cancelled = false;
+    // Prevent double execution (e.g. React Strict Mode or double-mount) so we don't create two admins
+    if (verificationStarted.current) {
+      return () => { isMountedRef.current = false; };
+    }
+    verificationStarted.current = true;
+
+    const LOADING_TIMEOUT_MS = 15000; // 15 seconds
+
+    const timeoutId = setTimeout(() => {
+      if (!isMountedRef.current) return;
+      setStatus('error');
+      setMessage('Verification is taking longer than usual. Your account may already be verified — try logging in. If not, please try the link again or contact the superadmin.');
+      verificationStarted.current = false;
+    }, LOADING_TIMEOUT_MS);
+
     verifyPendingAdmin(token.trim())
       .then(({ name }) => {
-        if (cancelled) return;
+        if (!isMountedRef.current) return;
+        clearTimeout(timeoutId);
         setStatus('success');
         setMessage(`Your admin account has been verified. You can now log in.`);
       })
       .catch((err) => {
-        if (cancelled) return;
+        if (!isMountedRef.current) return;
+        clearTimeout(timeoutId);
+        verificationStarted.current = false; // Allow retry on error
         setStatus('error');
         setMessage(err.message || 'Verification failed. The link may be invalid or expired.');
       });
 
-    return () => { cancelled = true; };
+    return () => {
+      isMountedRef.current = false;
+      clearTimeout(timeoutId);
+    };
   }, [token]);
 
   return (

@@ -5,7 +5,7 @@ import Pagination from '../../component/Pagination';
 import ErrorModal from '../../component/ErrorModal';
 import SuccessModal from '../../component/SuccessModal';
 import { EyeIcon, EyeSlashIcon } from "@heroicons/react/24/outline";
-import { getAdmins, addAdmin, addPendingAdmin, updateAdmin, archiveAdmin, initializeSuperAdmin, sendAdminVerificationEmail, getPendingAdmins, getCurrentAdminInfo } from '../../utils/firestoreService';
+import { getAdmins, addAdmin, addPendingAdmin, updateAdmin, archiveAdmin, initializeSuperAdmin, sendAdminVerificationEmail, getPendingAdmins, getCurrentAdminInfo, removePendingAdmin, subscribeToPendingAdmins } from '../../utils/firestoreService';
 
 function AdminAccountManagement() {
   const [admins, setAdmins] = useState([]);
@@ -61,6 +61,8 @@ function AdminAccountManagement() {
   });
   const [resendingId, setResendingId] = useState(null);
   const [copiedPendingId, setCopiedPendingId] = useState(null);
+  const [removingPendingId, setRemovingPendingId] = useState(null);
+  const [isAddingAdmin, setIsAddingAdmin] = useState(false);
 
   // Fetch admins and pending admins from Firestore on component mount
   useEffect(() => {
@@ -81,6 +83,12 @@ function AdminAccountManagement() {
     };
 
     fetchData();
+
+    // Real-time listener: when an admin verifies, they disappear from the pending list automatically
+    const unsubscribe = subscribeToPendingAdmins((pendingData) => {
+      setPendingAdmins(pendingData);
+    });
+    return () => unsubscribe();
   }, []);
 
   const handleSearchChange = (term) => {
@@ -326,6 +334,7 @@ function AdminAccountManagement() {
     }
 
     try {
+      setIsAddingAdmin(true);
       const createdBy = await getCurrentAdminInfo();
       const { token } = await addPendingAdmin(
         {
@@ -358,6 +367,7 @@ function AdminAccountManagement() {
       setAdmins(adminsData);
       setPendingAdmins(pendingData);
 
+      setIsAddingAdmin(false);
       setIsAddModalOpen(false);
       setFormData({ name: '', email: '', username: '', password: '', confirmPassword: '', status: 'Active' });
       setErrors({ name: '', email: '', username: '', password: '', confirmPassword: '' });
@@ -373,6 +383,7 @@ function AdminAccountManagement() {
       }
     } catch (err) {
       console.error('Error adding admin:', err);
+      setIsAddingAdmin(false);
       setErrorModal({
         isOpen: true,
         title: 'Failed to Add Admin',
@@ -537,7 +548,7 @@ function AdminAccountManagement() {
                 <li key={p.id} className="flex flex-wrap items-center gap-2 text-amber-900">
                   <span className="font-medium">{p.name}</span>
                   <span className="text-amber-700">({p.email})</span>
-                  <span className="text-amber-600">— verification email sent</span>
+                  <span className="text-amber-600">— {p.expired ? 'link expired' : 'verification email sent'}</span>
                   <span className="flex items-center gap-2 ml-auto">
                     <button
                       type="button"
@@ -572,6 +583,28 @@ function AdminAccountManagement() {
                       className="px-2 py-1 rounded bg-amber-200 text-amber-900 hover:bg-amber-300 text-xs font-medium"
                     >
                       {justCopied ? 'Copied!' : 'Copy link'}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={removingPendingId === p.id}
+                      onClick={async () => {
+                        if (!window.confirm(`Remove pending admin "${p.name}" (${p.email})? You can add them again to send a new verification email.`)) return;
+                        setRemovingPendingId(p.id);
+                        try {
+                          await removePendingAdmin(p.id);
+                          setSuccessModal({ isOpen: true, title: 'Pending removed', message: `You can now add ${p.email} again to send a new verification email.`, copyLink: '' });
+                          const [adminsData, pendingData] = await Promise.all([getAdmins(), getPendingAdmins()]);
+                          setAdmins(adminsData);
+                          setPendingAdmins(pendingData);
+                        } catch (err) {
+                          setErrorModal({ isOpen: true, title: 'Remove failed', message: err.message || 'Could not remove pending admin.' });
+                        } finally {
+                          setRemovingPendingId(null);
+                        }
+                      }}
+                      className="px-2 py-1 rounded bg-red-100 text-red-800 hover:bg-red-200 disabled:opacity-50 text-xs font-medium"
+                    >
+                      {removingPendingId === p.id ? 'Removing…' : 'Remove'}
                     </button>
                   </span>
                 </li>
@@ -790,6 +823,14 @@ function AdminAccountManagement() {
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-30">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6">
             <h2 className="text-xl font-bold text-[#143F81] mb-4">Add New Admin</h2>
+            {isAddingAdmin ? (
+              <div className="py-10 flex flex-col items-center justify-center gap-4">
+                <div className="w-12 h-12 border-4 border-[#143F81] border-t-transparent rounded-full animate-spin" />
+                <p className="text-gray-600 text-center">Adding admin and sending verification email...</p>
+                <p className="text-gray-500 text-sm text-center">This may take a few seconds.</p>
+              </div>
+            ) : (
+            <>
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
@@ -898,22 +939,27 @@ function AdminAccountManagement() {
               <button
                 className="px-4 py-2 rounded-lg bg-gray-200 text-gray-700 text-sm font-medium hover:bg-gray-300"
                 onClick={() => {
+                  if (isAddingAdmin) return;
                   setIsAddModalOpen(false);
                   setFormData({ name: '', email: '', username: '', password: '', confirmPassword: '' });
                   setErrors({ name: '', email: '', username: '', password: '', confirmPassword: '' });
                   setShowPassword(false);
                   setShowConfirmPassword(false);
                 }}
+                disabled={isAddingAdmin}
               >
                 Cancel
               </button>
               <button
-                className="px-4 py-2 rounded-lg bg-[#143F81] text-white text-sm font-medium hover:bg-[#1a4fa3]"
+                className="px-4 py-2 rounded-lg bg-[#143F81] text-white text-sm font-medium hover:bg-[#1a4fa3] disabled:opacity-50 disabled:cursor-not-allowed"
                 onClick={handleAddAdmin}
+                disabled={isAddingAdmin}
               >
                 Add Admin
               </button>
             </div>
+            </>
+            )}
           </div>
         </div>
       )}

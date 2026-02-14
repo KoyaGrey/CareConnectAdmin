@@ -20,12 +20,15 @@ Use this to put the **admin portal** online so the verification link in emails w
 
 ## Step 3: Configure the project
 
-Vercel will detect the repo. You must set the **root** so it builds the frontend:
+Vercel will detect the repo. You **must** set the root so the build runs in the folder that contains the Vite app (where `vite` is installed). Otherwise you’ll get `vite: command not found`.
 
-1. Find **Root Directory**.
-2. Click **Edit** and set it to: **`frontend`**
-3. Leave **Build Command** as `npm run build` (default).
+1. Find **Root Directory** and click **Edit**.
+2. Set it to the folder that has the frontend `package.json` (the one with `"build": "vite build"`):
+   - If your repo root is the outer folder (e.g. you have `CareConnectAdmin/frontend` inside the repo), use: **`CareConnectAdmin/frontend`**
+   - If your repo root is already the inner project folder and `frontend` is right inside it, use: **`frontend`**
+3. Leave **Build Command** as `npm run build`.
 4. Leave **Output Directory** as `dist` (Vite default).
+5. Leave **Install Command** as `npm install` (default).
 
 ---
 
