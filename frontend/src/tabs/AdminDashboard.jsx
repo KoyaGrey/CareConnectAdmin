@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import AdminLayout from './AdminLayout';
 import ArchiveModal from '../component/ArchiveModal';
-import { subscribeToCaregivers, subscribeToPatients, archiveCaregiver, archivePatient, testFirestoreConnection } from '../utils/firestoreService';
+import { subscribeToCaregivers, subscribeToPatients, archiveCaregiver, archivePatient, testFirestoreConnection, getConnectedPatientForCaregiver, getConnectedCaregiverForPatient } from '../utils/firestoreService';
 
 function AdminDashboard() {
   const [caregivers, setCaregivers] = useState([]);
@@ -70,6 +70,8 @@ function AdminDashboard() {
 
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedAccount, setSelectedAccount] = useState(null); // for read-only details modal
+  const [linkedAccount, setLinkedAccount] = useState(null); // connected patient (for caregiver) or caregiver (for patient)
+  const [linkedLoading, setLinkedLoading] = useState(false);
   const [archiveModal, setArchiveModal] = useState({
     isOpen: false,
     title: '',
@@ -80,6 +82,35 @@ function AdminDashboard() {
   const handleSearchChange = (term) => {
     setSearchTerm(term.toLowerCase());
   };
+
+  useEffect(() => {
+    if (!selectedAccount) {
+      setLinkedAccount(null);
+      setLinkedLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setLinkedAccount(null);
+    setLinkedLoading(true);
+    const fetchLinked = async () => {
+      try {
+        if (selectedAccount.type === 'caregiver') {
+          const patient = await getConnectedPatientForCaregiver(selectedAccount.id, selectedAccount.uid);
+          if (!cancelled) setLinkedAccount(patient ? { type: 'patient', ...patient } : null);
+        } else {
+          const caregiver = await getConnectedCaregiverForPatient(selectedAccount.id);
+          if (!cancelled) setLinkedAccount(caregiver ? { type: 'caregiver', ...caregiver } : null);
+        }
+      } catch (e) {
+        if (!cancelled) setLinkedAccount(null);
+        console.error('Error fetching linked account:', e);
+      } finally {
+        if (!cancelled) setLinkedLoading(false);
+      }
+    };
+    fetchLinked();
+    return () => { cancelled = true; };
+  }, [selectedAccount]);
 
 
   const filteredCaregivers = useMemo(
@@ -362,10 +393,37 @@ function AdminDashboard() {
                 </div>
               )}
 
-              {selectedAccount.assignedPatient && (
+              {selectedAccount.type === 'caregiver' && (
                 <div>
-                  <p className="font-semibold text-gray-700">Assigned Patient</p>
-                  <p className="text-gray-900">{selectedAccount.assignedPatient}</p>
+                  <p className="font-semibold text-gray-700">Connected Patient</p>
+                  {linkedLoading ? (
+                    <p className="text-gray-500">Loading patient...</p>
+                  ) : linkedAccount ? (
+                    <div className="text-gray-900 mt-1">
+                      <p>{linkedAccount.name}</p>
+                      {linkedAccount.email && <p className="text-gray-600">{linkedAccount.email}</p>}
+                      {linkedAccount.phone && <p className="text-gray-600">{linkedAccount.phone}</p>}
+                      {linkedAccount.id && <p className="text-gray-500 text-xs mt-1">ID: {linkedAccount.id}</p>}
+                    </div>
+                  ) : (
+                    <p className="text-gray-500">No patient connected</p>
+                  )}
+                </div>
+              )}
+              {selectedAccount.type === 'patient' && (
+                <div>
+                  <p className="font-semibold text-gray-700">Connected Caregiver</p>
+                  {linkedLoading ? (
+                    <p className="text-gray-500">Loading caregiver...</p>
+                  ) : linkedAccount ? (
+                    <div className="text-gray-900 mt-1">
+                      <p>{linkedAccount.name}</p>
+                      {linkedAccount.email && <p className="text-gray-600">{linkedAccount.email}</p>}
+                      {linkedAccount.id && <p className="text-gray-500 text-xs mt-1">ID: {linkedAccount.id}</p>}
+                    </div>
+                  ) : (
+                    <p className="text-gray-500">No caregiver connected</p>
+                  )}
                 </div>
               )}
 

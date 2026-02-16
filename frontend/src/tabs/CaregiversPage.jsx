@@ -2,7 +2,7 @@ import React, { useMemo, useState, useEffect } from 'react';
 import AdminLayout from './AdminLayout';
 import ArchiveModal from '../component/ArchiveModal';
 import Pagination from '../component/Pagination';
-import { subscribeToCaregivers, archiveCaregiver } from '../utils/firestoreService';
+import { subscribeToCaregivers, archiveCaregiver, getConnectedPatientForCaregiver } from '../utils/firestoreService';
 
 function CaregiversPage() {
   const [caregivers, setCaregivers] = useState([]);
@@ -11,6 +11,8 @@ function CaregiversPage() {
 
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedAccount, setSelectedAccount] = useState(null);
+  const [connectedPatient, setConnectedPatient] = useState(null);
+  const [connectedPatientLoading, setConnectedPatientLoading] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
   const [statusFilter, setStatusFilter] = useState('All');
@@ -44,6 +46,22 @@ function CaregiversPage() {
   const handleSearchChange = (term) => {
     setSearchTerm(term.toLowerCase());
   };
+
+  useEffect(() => {
+    if (!selectedAccount?.id) {
+      setConnectedPatient(null);
+      setConnectedPatientLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setConnectedPatient(null);
+    setConnectedPatientLoading(true);
+    getConnectedPatientForCaregiver(selectedAccount.id, selectedAccount.uid)
+      .then((patient) => { if (!cancelled) setConnectedPatient(patient); })
+      .catch((e) => { if (!cancelled) setConnectedPatient(null); console.error(e); })
+      .finally(() => { if (!cancelled) setConnectedPatientLoading(false); });
+    return () => { cancelled = true; };
+  }, [selectedAccount?.id]);
 
   const addToArchive = async (item, reason) => {
     try {
@@ -253,8 +271,19 @@ function CaregiversPage() {
                 <p className="text-gray-900">{selectedAccount.id}</p>
               </div>
               <div>
-                <p className="font-semibold text-gray-700">Assigned Patient</p>
-                <p className="text-gray-900">{selectedAccount.assignedPatient}</p>
+                <p className="font-semibold text-gray-700">Connected Patient</p>
+                {connectedPatientLoading ? (
+                  <p className="text-gray-500">Loading patient...</p>
+                ) : connectedPatient ? (
+                  <div className="text-gray-900 mt-1">
+                    <p>{connectedPatient.name}</p>
+                    {connectedPatient.email && <p className="text-gray-600">{connectedPatient.email}</p>}
+                    {connectedPatient.phone && <p className="text-gray-600">{connectedPatient.phone}</p>}
+                    <p className="text-gray-500 text-xs mt-1">ID: {connectedPatient.id}</p>
+                  </div>
+                ) : (
+                  <p className="text-gray-500">No patient connected</p>
+                )}
               </div>
               <div className="flex gap-6">
                 <div>

@@ -30,7 +30,8 @@ const COLLECTIONS = {
   ARCHIVED: 'archived', // For archived accounts
   ADMINS: 'admins', // For admin portal accounts
   PENDING_ADMINS: 'pending_admins', // Admin accounts waiting for email verification
-  LOGS: 'logs' // For system activity logs
+  LOGS: 'logs', // For system activity logs
+  CONNECTIONS: 'connections' // Caregiver–patient links (see docs/ADMIN_FIREBASE_CONNECTIONS.md)
 };
 
 // Fixed Super Admin Credentials
@@ -502,6 +503,39 @@ export const getPatientById = async (patientId) => {
     console.error('Error fetching patient:', error);
     throw error;
   }
+};
+
+/** Fetch connected patient for a caregiver via connections collection (see docs/ADMIN_FIREBASE_CONNECTIONS.md). */
+export const getConnectedPatientForCaregiver = async (caregiverDocId, caregiverAuthUid = null) => {
+  const ref = collection(db, COLLECTIONS.CONNECTIONS);
+  let snapshot;
+
+  if (caregiverDocId && String(caregiverDocId).trim()) {
+    const q = query(ref, where('caregiverDocId', '==', String(caregiverDocId).trim()), limit(1));
+    snapshot = await getDocs(q);
+  }
+  if ((!snapshot || snapshot.empty) && caregiverAuthUid && String(caregiverAuthUid).trim()) {
+    const qByUid = query(ref, where('caregiverId', '==', String(caregiverAuthUid).trim()), limit(1));
+    snapshot = await getDocs(qByUid);
+  }
+  if (!snapshot || snapshot.empty) return null;
+  const conn = snapshot.docs[0].data();
+  const patientDocId = conn.patientDocId;
+  if (!patientDocId) return null;
+  return getPatientById(patientDocId);
+};
+
+/** Fetch connected caregiver(s) for a patient via connections collection. Returns first or null. */
+export const getConnectedCaregiverForPatient = async (patientDocId) => {
+  if (!patientDocId || !String(patientDocId).trim()) return null;
+  const ref = collection(db, COLLECTIONS.CONNECTIONS);
+  const q = query(ref, where('patientDocId', '==', String(patientDocId).trim()), limit(1));
+  const snapshot = await getDocs(q);
+  if (snapshot.empty) return null;
+  const conn = snapshot.docs[0].data();
+  const caregiverDocId = conn.caregiverDocId;
+  if (!caregiverDocId) return null;
+  return getCaregiverById(caregiverDocId);
 };
 
 // -------- ARCHIVE --------
@@ -1297,6 +1331,30 @@ export const getAdminByEmail = async (email) => {
         status: data.status || 'Active',
         isFixed: adminDoc.id === SUPER_ADMIN_CREDENTIALS.DOC_ID
       };
+    }
+  }
+  return null;
+};
+
+/**
+ * Check if an admin with this email exists in the archived collection (for Google sign-in).
+ * @param {string} email - Admin email (case-insensitive match)
+ * @returns {Promise<Object|null>} Archived admin data or null if not found
+ */
+export const getArchivedAdminByEmail = async (email) => {
+  if (!email || !email.trim()) return null;
+  const normalizedEmail = email.trim().toLowerCase();
+  const archivedRef = collection(db, COLLECTIONS.ARCHIVED);
+  const q = query(
+    archivedRef,
+    where('originalCollection', '==', COLLECTIONS.ADMINS)
+  );
+  const snapshot = await getDocs(q);
+  for (const doc of snapshot.docs) {
+    const data = doc.data();
+    const docEmail = (data.email || '').trim().toLowerCase();
+    if (docEmail === normalizedEmail) {
+      return { id: doc.id, ...data };
     }
   }
   return null;
