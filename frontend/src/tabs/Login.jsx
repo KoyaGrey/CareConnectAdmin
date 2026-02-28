@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { authenticate, setUserRole, ROLES } from '../utils/auth';
-import { authenticateAdmin, checkAdminAccountStatus, getAdminByEmail, getArchivedAdminByEmail, createLogEntry } from '../utils/firestoreService';
-import { signInWithGoogle, signOutFirebase } from '../utils/firebase';
+import { authenticateAdmin, checkAdminAccountStatus, getAdminByEmail, createLogEntry } from '../utils/firestoreService';
+import { signInWithGoogle } from '../utils/firebase';
 import { EyeIcon, EyeSlashIcon } from "@heroicons/react/24/outline";
 import ErrorModal from '../component/ErrorModal';
 import bgApp from '../component/img/bg_app.jpeg';
@@ -264,16 +264,6 @@ function Login() {
                                 </div>
                             </div>
 
-                            {/* Forgot Password */}
-                            <div className="flex justify-end">
-                                <Link
-                                    to="/tab/forgot-password"
-                                    className="text-sm font-medium text-gray-500 hover:text-[#143F81] transition-colors"
-                                >
-                                    Forgot Password?
-                                </Link>
-                            </div>
-
                             {/* Account Status Warning */}
                             {accountStatus.message && (
                                 <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
@@ -321,13 +311,7 @@ function Login() {
                                         }
                                         const adminData = await getAdminByEmail(email);
                                         if (!adminData) {
-                                            const archivedAdmin = await getArchivedAdminByEmail(email);
-                                            if (archivedAdmin) {
-                                                await signOutFirebase();
-                                                setErrorModal({ isOpen: true, title: 'Account archived', message: 'Your account has been archived. Please contact superadmin or support.' });
-                                            } else {
-                                                setErrorModal({ isOpen: true, title: 'No admin account', message: 'No admin account is linked to this Google email. Use username/password or contact superadmin.' });
-                                            }
+                                            setErrorModal({ isOpen: true, title: 'No admin account', message: 'No admin account is linked to this Google email. Use username/password or contact superadmin.' });
                                             return;
                                         }
                                         if (adminData.status === 'Inactive') {

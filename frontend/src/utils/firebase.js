@@ -10,7 +10,7 @@
 
 import { initializeApp } from 'firebase/app';
 import { getFirestore } from 'firebase/firestore';
-import { getAuth, signInWithPopup, GoogleAuthProvider, signOut } from 'firebase/auth';
+import { getAuth, signInWithPopup, GoogleAuthProvider } from 'firebase/auth';
 
 // TODO: Replace with your Firebase Web App config
 // IMPORTANT: You're currently using the Android app ID - this won't work!
@@ -54,8 +54,5 @@ export const signInWithGoogle = () => {
   provider.setCustomParameters({ prompt: 'select_account' });
   return signInWithPopup(auth, provider);
 };
-
-/** Sign out from Firebase Auth (e.g. when account is archived). */
-export const signOutFirebase = () => signOut(auth);
 
 export default app;

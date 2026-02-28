@@ -23,6 +23,21 @@ import {
 } from 'firebase/firestore';
 import { db } from './firebase';
 
+/** Hash password for storage (so it is not visible in Firestore). Returns 64-char hex. */
+async function hashPassword(plain) {
+  if (!plain || typeof plain !== 'string') return '';
+  const enc = new TextEncoder();
+  const data = enc.encode(plain);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+/** True if str looks like a SHA-256 hex hash (64 hex chars). */
+function isStoredHash(str) {
+  return typeof str === 'string' && str.length === 64 && /^[a-f0-9]+$/i.test(str);
+}
+
 // Collection names (matching Android app)
 const COLLECTIONS = {
   CAREGIVERS: 'caregivers',
@@ -1057,10 +1072,10 @@ export const initializeSuperAdmin = async () => {
   try {
     const superAdminRef = doc(db, COLLECTIONS.ADMINS, SUPER_ADMIN_CREDENTIALS.DOC_ID);
     const superAdminSnap = await getDoc(superAdminRef);
-    
+    const defaultPasswordHashed = await hashPassword(SUPER_ADMIN_CREDENTIALS.PASSWORD);
     const superAdminData = {
       username: SUPER_ADMIN_CREDENTIALS.USERNAME,
-      password: SUPER_ADMIN_CREDENTIALS.PASSWORD, // In production, this should be hashed
+      password: defaultPasswordHashed,
       name: 'Super Administrator',
       email: 'superadmin@careconnect.com',
       role: 'SUPER_ADMIN',
@@ -1079,12 +1094,12 @@ export const initializeSuperAdmin = async () => {
     } else {
       // Ensure the existing super admin has the correct credentials and flags
       const existingData = superAdminSnap.data();
-      if (existingData.username !== SUPER_ADMIN_CREDENTIALS.USERNAME || 
-          existingData.password !== SUPER_ADMIN_CREDENTIALS.PASSWORD ||
+      if (existingData.username !== SUPER_ADMIN_CREDENTIALS.USERNAME ||
+          existingData.password !== defaultPasswordHashed ||
           !existingData.isFixed) {
         await updateDoc(superAdminRef, {
           username: SUPER_ADMIN_CREDENTIALS.USERNAME,
-          password: SUPER_ADMIN_CREDENTIALS.PASSWORD,
+          password: defaultPasswordHashed,
           isFixed: true,
           isProtected: true
         });
@@ -1175,56 +1190,56 @@ export const authenticateAdmin = async (username, password) => {
       expectedPasswordLength: SUPER_ADMIN_CREDENTIALS.PASSWORD.length
     });
     
-    // Check for fixed super admin first (hardcoded check - works even if Firestore fails)
+    // Check for fixed super admin first (username is fixed; password can be in Firestore or fallback to default)
     if (normalizedUsername === SUPER_ADMIN_CREDENTIALS.USERNAME.toLowerCase()) {
       console.log('Super admin username matched, checking password...');
-      if (normalizedPassword === SUPER_ADMIN_CREDENTIALS.PASSWORD) {
-        console.log('Super admin password matched! Authenticating...');
-        
-        // Try to update/create in Firestore (non-blocking)
-        try {
-          const superAdminRef = doc(db, COLLECTIONS.ADMINS, SUPER_ADMIN_CREDENTIALS.DOC_ID);
-          const superAdminSnap = await getDoc(superAdminRef);
-          
-          if (superAdminSnap.exists()) {
-            // Update last active
-            await updateDoc(superAdminRef, {
-              lastActive: Timestamp.now()
-            });
-            console.log('Super admin last active updated in Firestore');
-          } else {
-            // Create the super admin if it doesn't exist
-            console.log('Super admin not found in Firestore, creating...');
-            await initializeSuperAdmin();
+      let superAdminPasswordValid = false;
+      let superAdminDataFromFirestore = null;
+
+      try {
+        const superAdminRef = doc(db, COLLECTIONS.ADMINS, SUPER_ADMIN_CREDENTIALS.DOC_ID);
+        const superAdminSnap = await getDoc(superAdminRef);
+
+        if (superAdminSnap.exists()) {
+          const data = superAdminSnap.data();
+          superAdminDataFromFirestore = data;
+          const storedPassword = (data.password || '').trim();
+          if (storedPassword) {
+            if (isStoredHash(storedPassword)) {
+              const inputHash = await hashPassword(normalizedPassword);
+              if (inputHash === storedPassword) superAdminPasswordValid = true;
+            } else {
+              if (storedPassword === normalizedPassword) superAdminPasswordValid = true;
+            }
           }
-        } catch (firestoreError) {
-          console.warn('Could not update super admin in Firestore (non-critical):', firestoreError);
-          // Continue anyway - authentication still works
+          await updateDoc(superAdminRef, { lastActive: Timestamp.now() });
+        } else {
+          await initializeSuperAdmin();
         }
-        
-        // Return super admin data (works even if Firestore fails)
-        console.log('Returning super admin data');
+      } catch (firestoreError) {
+        console.warn('Firestore error for super admin login (non-critical):', firestoreError);
+      }
+
+      if (!superAdminPasswordValid && normalizedPassword === SUPER_ADMIN_CREDENTIALS.PASSWORD) {
+        superAdminPasswordValid = true; // legacy: default password still works
+      }
+
+      if (superAdminPasswordValid) {
+        const data = superAdminDataFromFirestore || {};
         const adminData = {
           id: SUPER_ADMIN_CREDENTIALS.DOC_ID,
           username: SUPER_ADMIN_CREDENTIALS.USERNAME,
           role: 'SUPER_ADMIN',
-          name: 'Super Administrator',
-          email: 'superadmin@careconnect.com',
+          name: data.name || 'Super Administrator',
+          email: data.email || 'superadmin@careconnect.com',
           isFixed: true
         };
-        
-        // Log login with actual admin data (async, non-blocking)
-        createLogEntry('LOGIN', 'admin', adminData.id, adminData.name, {
-          role: adminData.role
-        }, adminData).catch(err => console.warn('Failed to log login:', err));
-        
+        createLogEntry('LOGIN', 'admin', adminData.id, adminData.name, { role: adminData.role }, adminData).catch(() => {});
         return adminData;
-      } else {
-        console.log('Super admin password mismatch');
-        console.log('Expected:', SUPER_ADMIN_CREDENTIALS.PASSWORD);
-        console.log('Got:', normalizedPassword);
-        throw new Error('Invalid password for super admin');
       }
+
+      console.log('Super admin password mismatch');
+      throw new Error('Invalid password for super admin');
     }
     
     console.log('Not super admin, checking other admins in Firestore...');
@@ -1239,9 +1254,13 @@ export const authenticateAdmin = async (username, password) => {
         // Skip the fixed super admin (already checked above)
         if (adminDoc.id === SUPER_ADMIN_CREDENTIALS.DOC_ID) continue;
         
-        // Case-insensitive username comparison
+        // Case-insensitive username comparison; support hashed or legacy plain password
         const adminUsername = adminData.username ? adminData.username.toLowerCase() : '';
-        if (adminUsername === normalizedUsername && adminData.password === password) {
+        const storedPwd = (adminData.password || '').trim();
+        const passwordMatches = isStoredHash(storedPwd)
+          ? (await hashPassword(password)) === storedPwd
+          : storedPwd === password;
+        if (adminUsername === normalizedUsername && passwordMatches) {
           // Check if account is inactive
           if (adminData.status === 'Inactive') {
             throw new Error('ACCOUNT_INACTIVE');
@@ -1286,9 +1305,12 @@ export const authenticateAdmin = async (username, password) => {
       
       for (const archivedDoc of archivedSnapshot.docs) {
         const archivedData = archivedDoc.data();
-        // Case-insensitive username comparison
         const archivedUsername = archivedData.username ? archivedData.username.toLowerCase() : '';
-        if (archivedUsername === normalizedUsername && archivedData.password === password) {
+        const archivedPwd = (archivedData.password || '').trim();
+        const archivedPwdMatches = isStoredHash(archivedPwd)
+          ? (await hashPassword(password)) === archivedPwd
+          : archivedPwd === password;
+        if (archivedUsername === normalizedUsername && archivedPwdMatches) {
           throw new Error('ACCOUNT_ARCHIVED');
         }
       }
@@ -1331,30 +1353,6 @@ export const getAdminByEmail = async (email) => {
         status: data.status || 'Active',
         isFixed: adminDoc.id === SUPER_ADMIN_CREDENTIALS.DOC_ID
       };
-    }
-  }
-  return null;
-};
-
-/**
- * Check if an admin with this email exists in the archived collection (for Google sign-in).
- * @param {string} email - Admin email (case-insensitive match)
- * @returns {Promise<Object|null>} Archived admin data or null if not found
- */
-export const getArchivedAdminByEmail = async (email) => {
-  if (!email || !email.trim()) return null;
-  const normalizedEmail = email.trim().toLowerCase();
-  const archivedRef = collection(db, COLLECTIONS.ARCHIVED);
-  const q = query(
-    archivedRef,
-    where('originalCollection', '==', COLLECTIONS.ADMINS)
-  );
-  const snapshot = await getDocs(q);
-  for (const doc of snapshot.docs) {
-    const data = doc.data();
-    const docEmail = (data.email || '').trim().toLowerCase();
-    if (docEmail === normalizedEmail) {
-      return { id: doc.id, ...data };
     }
   }
   return null;
@@ -1597,11 +1595,14 @@ export const addAdmin = async (adminData, options = {}) => {
       throw new Error(`Admin ID ${documentId} already exists. Please try again.`);
     }
     
+    const passwordToStore = (adminData.password && isStoredHash(adminData.password))
+      ? adminData.password
+      : await hashPassword(adminData.password || '');
     const newAdmin = {
       name: adminData.name,
       email: adminData.email,
       username: adminData.username,
-      password: adminData.password, // In production, hash this
+      password: passwordToStore,
       role: 'ADMIN', // Always ADMIN, never SUPER_ADMIN
       type: 'admin',
       status: 'Active',
@@ -1698,7 +1699,7 @@ export const addPendingAdmin = async (adminData, createdByInfo = null) => {
     name: adminData.name,
     email,
     username,
-    password: adminData.password,
+    password: await hashPassword(adminData.password || ''),
     verificationToken: token,
     expiresAt,
     createdAt: Timestamp.now(),
@@ -1879,24 +1880,37 @@ export const sendAdminVerificationEmail = async (email, verificationLink, token)
  */
 export const updateAdmin = async (adminId, updates) => {
   try {
-    // Prevent updating the fixed super admin
-    if (adminId === SUPER_ADMIN_CREDENTIALS.DOC_ID) {
-      throw new Error('Cannot update the fixed super admin account');
-    }
-    
-    // Prevent changing username to 'superadmin'
-    if (updates.username && updates.username.toLowerCase() === SUPER_ADMIN_CREDENTIALS.USERNAME.toLowerCase()) {
-      throw new Error('Username "superadmin" is reserved for the system account');
-    }
-    
     const adminRef = doc(db, COLLECTIONS.ADMINS, adminId);
     const adminSnap = await getDoc(adminRef);
     const oldAdminData = adminSnap.exists() ? adminSnap.data() : {};
-    
-    await updateDoc(adminRef, {
-      ...updates,
-      role: 'ADMIN' // Ensure role stays as ADMIN
-    });
+
+    // Super admin: allow only name, email, password (no username/role change)
+    if (adminId === SUPER_ADMIN_CREDENTIALS.DOC_ID) {
+      const allowed = {};
+      if (updates.name != null) allowed.name = updates.name;
+      if (updates.email != null) allowed.email = updates.email;
+      if (updates.password != null && updates.password.trim() !== '') {
+        allowed.password = isStoredHash(updates.password) ? updates.password : await hashPassword(updates.password);
+      }
+      allowed.lastActive = Timestamp.now();
+      if (Object.keys(allowed).length <= 1) return; // only lastActive, nothing to update
+      await updateDoc(adminRef, allowed);
+      createLogEntry('ADMIN_UPDATED', 'admin', adminId, allowed.name || oldAdminData.name || 'Super Administrator', { updatedFields: Object.keys(allowed) }).catch(() => {});
+      return;
+    }
+
+    // Prevent changing username to 'superadmin' for other admins
+    if (updates.username && updates.username.toLowerCase() === SUPER_ADMIN_CREDENTIALS.USERNAME.toLowerCase()) {
+      throw new Error('Username "superadmin" is reserved for the system account');
+    }
+
+    const updatesToWrite = { ...updates, role: 'ADMIN' };
+    if (updatesToWrite.password != null && updatesToWrite.password.trim() !== '') {
+      updatesToWrite.password = isStoredHash(updatesToWrite.password)
+        ? updatesToWrite.password
+        : await hashPassword(updatesToWrite.password);
+    }
+    await updateDoc(adminRef, updatesToWrite);
     console.log('Admin updated successfully');
     
     // Log the update, especially status changes
