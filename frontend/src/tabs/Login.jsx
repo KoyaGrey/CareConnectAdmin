@@ -148,8 +148,7 @@ function Login() {
                     fullName: adminData.name || 'Admin User',
                     email: adminData.email || '',
                     username: adminData.username || '',
-                    adminId: adminData.id || '',
-                    lastActive: adminData.lastActive || new Date().toLocaleString()
+                    adminId: adminData.id || ''
                 };
                 localStorage.setItem('adminProfile', JSON.stringify(profileData));
                 
@@ -328,8 +327,7 @@ function Login() {
                                             fullName: adminData.name || 'Admin User',
                                             email: adminData.email || '',
                                             username: adminData.username || '',
-                                            adminId: adminData.id || '',
-                                            lastActive: adminData.lastActive || new Date().toLocaleString()
+                                            adminId: adminData.id || ''
                                         };
                                         localStorage.setItem('adminProfile', JSON.stringify(profileData));
                                         if (typeof sessionStorage !== 'undefined') {

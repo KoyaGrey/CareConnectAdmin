@@ -280,11 +280,6 @@ function EditProfileModal({ isOpen, onClose, onSave, initialData }) {
                         <p className="text-gray-500 text-xs mt-1">Only @gmail.com, @outlook.com, or @yahoo.com</p>
                     </div>
 
-                    <div className="bg-gray-50 rounded-lg px-4 py-2 border border-gray-200">
-                        <label className="block text-xs font-medium text-gray-500 mb-0.5">Last active</label>
-                        <p className="text-sm text-gray-900">{initialData?.lastActive || 'Never'}</p>
-                    </div>
-
                     <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">
                             Username <span className="text-red-500">*</span>

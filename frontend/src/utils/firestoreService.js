@@ -56,14 +56,6 @@ const SUPER_ADMIN_CREDENTIALS = {
   DOC_ID: 'SUPER_ADMIN_FIXED' // Fixed document ID in Firestore
 };
 
-/** Format lastActive for display; fallback to createdAt so the column always shows a date. */
-const formatLastActiveDisplay = (data) => {
-  if (data.lastActive?.toDate?.()) return new Date(data.lastActive.toDate()).toLocaleString();
-  if (data.lastActive && typeof data.lastActive === 'string') return data.lastActive;
-  if (data.createdAt?.toDate?.()) return new Date(data.createdAt.toDate()).toLocaleString();
-  return 'Never';
-};
-
 // -----------------------------------------------------------------------------
 // TABLE OF CONTENTS (search for these section headers to jump to code)
 // -----------------------------------------------------------------------------
@@ -93,7 +85,9 @@ const mapCaregiverData = (doc) => {
     email: data.email || '',
     phone: data.phone || '',
     status: data.status || 'Active',
-    lastActive: formatLastActiveDisplay(data),
+    lastActive: data.lastActive?.toDate?.() ? 
+      new Date(data.lastActive.toDate()).toLocaleString() : 
+      (data.lastActive || 'Unknown'),
     assignedPatient: data.assignedPatient || 'Not assigned',
     type: 'caregiver',
     role: data.role || 'caregiver',
@@ -300,7 +294,9 @@ const mapPatientData = (doc) => {
     email: data.email || '',
     phone: data.phone || '',
     status: data.status || 'Active',
-    lastActive: formatLastActiveDisplay(data),
+    lastActive: data.lastActive?.toDate?.() ? 
+      new Date(data.lastActive.toDate()).toLocaleString() : 
+      (data.lastActive || 'Unknown'),
     type: 'patient',
     role: data.role || 'patient',
     createdAt: data.createdAt?.toDate?.() || null
@@ -472,12 +468,12 @@ export const getCaregiverById = async (caregiverId) => {
       const data = caregiverSnap.data();
       return {
         id: caregiverSnap.id,
-        uid: data.authUid || caregiverSnap.id,
-        name: data.fullName || data.name || 'Unknown',
+        uid: caregiverSnap.id,
+        name: data.fullName || 'Unknown',
         email: data.email || '',
         phone: data.phone || '',
-        status: data.status || 'Active',
-        lastActive: formatLastActiveDisplay(data),
+        status: 'Active',
+        lastActive: data.lastActive || 'Unknown',
         assignedPatient: data.assignedPatient || 'Not assigned',
         type: 'caregiver',
         role: data.role || 'caregiver',
@@ -489,23 +485,6 @@ export const getCaregiverById = async (caregiverId) => {
   } catch (error) {
     console.error('Error fetching caregiver:', error);
     throw error;
-  }
-};
-
-/**
- * Get a caregiver by their Firebase Auth UID (e.g. from connections.caregiverId).
- */
-export const getCaregiverByAuthUid = async (authUid) => {
-  if (!authUid || !String(authUid).trim()) return null;
-  try {
-    const ref = collection(db, COLLECTIONS.CAREGIVERS);
-    const q = query(ref, where('authUid', '==', String(authUid).trim()), limit(1));
-    const snapshot = await getDocs(q);
-    if (snapshot.empty) return null;
-    return getCaregiverById(snapshot.docs[0].id);
-  } catch (error) {
-    console.error('Error fetching caregiver by authUid:', error);
-    return null;
   }
 };
 
@@ -523,12 +502,12 @@ export const getPatientById = async (patientId) => {
       const data = patientSnap.data();
       return {
         id: patientSnap.id,
-        uid: data.authUid || patientSnap.id,
-        name: data.fullName || data.name || 'Unknown',
+        uid: patientSnap.id,
+        name: data.fullName || 'Unknown',
         email: data.email || '',
         phone: data.phone || '',
-        status: data.status || 'Active',
-        lastActive: formatLastActiveDisplay(data),
+        status: 'Active',
+        lastActive: data.lastActive || 'Unknown',
         type: 'patient',
         role: data.role || 'patient',
         createdAt: data.createdAt?.toDate?.() || null
@@ -541,65 +520,37 @@ export const getPatientById = async (patientId) => {
   }
 };
 
-/**
- * Get a patient by their Firebase Auth UID (e.g. from connections.patientId).
- * Use when the app stores connections with patientId = auth UID instead of patientDocId.
- */
-export const getPatientByAuthUid = async (authUid) => {
-  if (!authUid || !String(authUid).trim()) return null;
-  try {
-    const ref = collection(db, COLLECTIONS.PATIENTS);
-    const q = query(ref, where('authUid', '==', String(authUid).trim()), limit(1));
-    const snapshot = await getDocs(q);
-    if (snapshot.empty) return null;
-    return getPatientById(snapshot.docs[0].id);
-  } catch (error) {
-    console.error('Error fetching patient by authUid:', error);
-    return null;
-  }
-};
-
 /** Fetch connected patient for a caregiver via connections collection (see docs/ADMIN_FIREBASE_CONNECTIONS.md). */
 export const getConnectedPatientForCaregiver = async (caregiverDocId, caregiverAuthUid = null) => {
   const ref = collection(db, COLLECTIONS.CONNECTIONS);
   let snapshot;
 
-  if (caregiverAuthUid && String(caregiverAuthUid).trim()) {
-    const qByUid = query(ref, where('caregiverId', '==', String(caregiverAuthUid).trim()), limit(1));
-    snapshot = await getDocs(qByUid);
-  }
-  if ((!snapshot || snapshot.empty) && caregiverDocId && String(caregiverDocId).trim()) {
+  if (caregiverDocId && String(caregiverDocId).trim()) {
     const q = query(ref, where('caregiverDocId', '==', String(caregiverDocId).trim()), limit(1));
     snapshot = await getDocs(q);
+  }
+  if ((!snapshot || snapshot.empty) && caregiverAuthUid && String(caregiverAuthUid).trim()) {
+    const qByUid = query(ref, where('caregiverId', '==', String(caregiverAuthUid).trim()), limit(1));
+    snapshot = await getDocs(qByUid);
   }
   if (!snapshot || snapshot.empty) return null;
   const conn = snapshot.docs[0].data();
   const patientDocId = conn.patientDocId;
-  const patientAuthUid = conn.patientId;
-  if (patientDocId) return getPatientById(patientDocId);
-  if (patientAuthUid) return getPatientByAuthUid(patientAuthUid);
-  return null;
+  if (!patientDocId) return null;
+  return getPatientById(patientDocId);
 };
 
 /** Fetch connected caregiver(s) for a patient via connections collection. Returns first or null. */
-export const getConnectedCaregiverForPatient = async (patientDocId, patientAuthUid = null) => {
+export const getConnectedCaregiverForPatient = async (patientDocId) => {
+  if (!patientDocId || !String(patientDocId).trim()) return null;
   const ref = collection(db, COLLECTIONS.CONNECTIONS);
-  let snapshot;
-  if (patientAuthUid && String(patientAuthUid).trim()) {
-    const qByUid = query(ref, where('patientId', '==', String(patientAuthUid).trim()), limit(1));
-    snapshot = await getDocs(qByUid);
-  }
-  if ((!snapshot || snapshot.empty) && patientDocId && String(patientDocId).trim()) {
-    const q = query(ref, where('patientDocId', '==', String(patientDocId).trim()), limit(1));
-    snapshot = await getDocs(q);
-  }
-  if (!snapshot || snapshot.empty) return null;
+  const q = query(ref, where('patientDocId', '==', String(patientDocId).trim()), limit(1));
+  const snapshot = await getDocs(q);
+  if (snapshot.empty) return null;
   const conn = snapshot.docs[0].data();
   const caregiverDocId = conn.caregiverDocId;
-  const caregiverAuthUid = conn.caregiverId;
-  if (caregiverDocId) return getCaregiverById(caregiverDocId);
-  if (caregiverAuthUid) return getCaregiverByAuthUid(caregiverAuthUid);
-  return null;
+  if (!caregiverDocId) return null;
+  return getCaregiverById(caregiverDocId);
 };
 
 // -------- ARCHIVE --------
@@ -1281,7 +1232,6 @@ export const authenticateAdmin = async (username, password) => {
           role: 'SUPER_ADMIN',
           name: data.name || 'Super Administrator',
           email: data.email || 'superadmin@careconnect.com',
-          lastActive: new Date().toLocaleString(),
           isFixed: true
         };
         createLogEntry('LOGIN', 'admin', adminData.id, adminData.name, { role: adminData.role }, adminData).catch(() => {});
@@ -1325,7 +1275,6 @@ export const authenticateAdmin = async (username, password) => {
             console.warn('Could not update last active (non-critical):', updateError);
           }
           
-          const lastActiveFormatted = new Date().toLocaleString();
           const returnedAdminData = {
             id: adminDoc.id,
             username: adminData.username,
@@ -1333,7 +1282,6 @@ export const authenticateAdmin = async (username, password) => {
             name: adminData.name,
             email: adminData.email,
             status: adminData.status || 'Active',
-            lastActive: lastActiveFormatted,
             isFixed: false
           };
           
@@ -1403,7 +1351,6 @@ export const getAdminByEmail = async (email) => {
         name: data.name || 'Admin User',
         email: data.email || '',
         status: data.status || 'Active',
-        lastActive: data.lastActive?.toDate?.() ? new Date(data.lastActive.toDate()).toLocaleString() : (data.lastActive || 'Never'),
         isFixed: adminDoc.id === SUPER_ADMIN_CREDENTIALS.DOC_ID
       };
     }
