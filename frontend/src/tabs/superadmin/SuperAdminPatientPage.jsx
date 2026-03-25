@@ -165,7 +165,7 @@ function SuperAdminPatientPage() {
               <tr>
                 <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Name</th>
                 <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Status</th>
-                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Last Active</th>
+                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Created</th>
                 <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Actions</th>
               </tr>
             </thead>
@@ -245,7 +245,7 @@ function SuperAdminPatientPage() {
                   <p className="text-gray-900">{selectedAccount.status}</p>
                 </div>
                 <div>
-                  <p className="font-semibold text-gray-700">Last Active</p>
+                  <p className="font-semibold text-gray-700">Created</p>
                   <p className="text-gray-900">{selectedAccount.lastActive}</p>
                 </div>
               </div>

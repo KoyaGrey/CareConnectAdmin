@@ -17,7 +17,7 @@ function ResetPassword() {
             <div className="px-5 py-20 flex flex-col gap-6 items-center">
                 <h1 className="text-white font-semibold text-3xl tracking-wide text-center">Password reset successfully!</h1>
                 <button
-                    onClick={() => navigate('/login')}
+                    onClick={() => navigate('/tab/login')}
                     className="bg-white py-2 px-8 rounded-xl mt-4 text-[#143F81] font-semibold text-lg"
                 >
                     BACK TO LOGIN

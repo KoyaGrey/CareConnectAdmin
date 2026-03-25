@@ -81,7 +81,8 @@ function AdminLayout({
   const [adminProfile, setAdminProfile] = useState({
     fullName: '',
     email: '',
-    username: ''
+    username: '',
+    lastActive: ''
   });
   const [loadingProfile, setLoadingProfile] = useState(true);
   const [successModal, setSuccessModal] = useState({
@@ -115,14 +116,16 @@ function AdminLayout({
               profileData = {
                 fullName: data.name || 'Super Administrator',
                 email: data.email || 'superadmin@careconnect.com',
-                username: data.username || SUPER_ADMIN_CREDENTIALS.USERNAME
+                username: data.username || SUPER_ADMIN_CREDENTIALS.USERNAME,
+                lastActive: data.lastActive?.toDate?.() ? new Date(data.lastActive.toDate()).toLocaleString() : (data.lastActive || 'Never')
               };
             } else {
               // Fallback to default super admin data
               profileData = {
                 fullName: 'Super Administrator',
                 email: 'superadmin@careconnect.com',
-                username: SUPER_ADMIN_CREDENTIALS.USERNAME
+                username: SUPER_ADMIN_CREDENTIALS.USERNAME,
+                lastActive: 'Never'
               };
             }
             
@@ -141,7 +144,8 @@ function AdminLayout({
             const profileData = {
               fullName: 'Super Administrator',
               email: 'superadmin@careconnect.com',
-              username: SUPER_ADMIN_CREDENTIALS.USERNAME
+              username: SUPER_ADMIN_CREDENTIALS.USERNAME,
+              lastActive: 'Never'
             };
             setAdminProfile(profileData);
             
@@ -169,7 +173,8 @@ function AdminLayout({
               setAdminProfile({
                 fullName: profile.fullName || 'Admin User',
                 email: profile.email || '',
-                username: profile.username || ''
+                username: profile.username || '',
+                lastActive: profile.lastActive || 'Never'
               });
             } catch (e) {
               console.warn('Failed to parse stored profile:', e);
@@ -177,7 +182,8 @@ function AdminLayout({
               setAdminProfile({
                 fullName: 'Admin User',
                 email: 'admin@careconnect.com',
-                username: 'admin'
+                username: 'admin',
+                lastActive: 'Never'
               });
             }
           } else {
@@ -185,7 +191,8 @@ function AdminLayout({
             setAdminProfile({
               fullName: 'Admin User',
               email: 'admin@careconnect.com',
-              username: 'admin'
+              username: 'admin',
+              lastActive: 'Never'
             });
           }
         }
@@ -196,7 +203,8 @@ function AdminLayout({
         setAdminProfile({
           fullName: currentRole === ROLES.SUPER_ADMIN ? 'Super Administrator' : 'Admin User',
           email: currentRole === ROLES.SUPER_ADMIN ? 'superadmin@careconnect.com' : 'admin@careconnect.com',
-          username: currentRole === ROLES.SUPER_ADMIN ? SUPER_ADMIN_CREDENTIALS.USERNAME : 'admin'
+          username: currentRole === ROLES.SUPER_ADMIN ? SUPER_ADMIN_CREDENTIALS.USERNAME : 'admin',
+          lastActive: 'Never'
         });
       } finally {
         setLoadingProfile(false);
@@ -558,7 +566,11 @@ function AdminLayout({
             </button>
 
             {isAccountMenuOpen && (
-              <div className="absolute right-0 top-10 sm:top-11 md:top-12 w-32 sm:w-36 md:w-40 bg-white border border-gray-200 rounded-lg shadow-lg py-1 z-20">
+              <div className="absolute right-0 top-10 sm:top-11 md:top-12 w-48 sm:w-52 md:w-56 bg-white border border-gray-200 rounded-lg shadow-lg py-1 z-20">
+                <div className="px-3 sm:px-4 py-2 border-b border-gray-100">
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Last active</p>
+                  <p className="text-sm text-gray-900 truncate" title={adminProfile.lastActive || 'Never'}>{adminProfile.lastActive || 'Never'}</p>
+                </div>
                 <button
                   className="w-full text-left px-3 sm:px-4 py-2 text-xs sm:text-sm text-gray-700 hover:bg-gray-100"
                   onClick={handleProfileClick}

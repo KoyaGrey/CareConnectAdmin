@@ -61,7 +61,7 @@ function CaregiversPage() {
       .catch((e) => { if (!cancelled) setConnectedPatient(null); console.error(e); })
       .finally(() => { if (!cancelled) setConnectedPatientLoading(false); });
     return () => { cancelled = true; };
-  }, [selectedAccount?.id]);
+  }, [selectedAccount?.id, selectedAccount?.uid]);
 
   const addToArchive = async (item, reason) => {
     try {
@@ -192,7 +192,7 @@ function CaregiversPage() {
               <tr>
                 <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Name</th>
                 <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Status</th>
-                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Last Active</th>
+                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Created</th>
                 <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Actions</th>
               </tr>
             </thead>
@@ -291,7 +291,7 @@ function CaregiversPage() {
                   <p className="text-gray-900">{selectedAccount.status}</p>
                 </div>
                 <div>
-                  <p className="font-semibold text-gray-700">Last Active</p>
+                  <p className="font-semibold text-gray-700">Created</p>
                   <p className="text-gray-900">{selectedAccount.lastActive}</p>
                 </div>
               </div>

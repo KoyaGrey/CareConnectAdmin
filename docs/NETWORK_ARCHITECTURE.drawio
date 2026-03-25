@@ -1,0 +1,67 @@
+<mxfile host="app.diagrams.net" agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36" version="29.6.3">
+  <diagram id="network-architecture" name="Network Architecture">
+    <mxGraphModel dx="1188" dy="648" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1100" pageHeight="850" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="clientsContainer" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F8FAFC;strokeColor=#CBD5E1;fontStyle=1;" value="Clients" vertex="1">
+          <mxGeometry height="260" width="260" x="40" y="80" as="geometry" />
+        </mxCell>
+        <mxCell id="browser" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#2563EB;" value="Admin / Super Admin&#xa;Browser (React SPA)" vertex="1">
+          <mxGeometry height="70" width="200" x="70" y="130" as="geometry" />
+        </mxCell>
+        <mxCell id="mobile" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#2563EB;" value="CareConnect mobile app" vertex="1">
+          <mxGeometry height="60" width="200" x="70" y="230" as="geometry" />
+        </mxCell>
+        <mxCell id="firebaseContainer" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF7ED;strokeColor=#FB923C;fontStyle=1;" value="Google Cloud / Firebase" vertex="1">
+          <mxGeometry height="340" width="380" x="360" y="60" as="geometry" />
+        </mxCell>
+        <mxCell id="auth" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#F97316;" value="Firebase Auth&#xa;(Google Sign-In)" vertex="1">
+          <mxGeometry height="60" width="320" x="390" y="120" as="geometry" />
+        </mxCell>
+        <mxCell id="firestore" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#F97316;" value="Cloud Firestore&#xa;admins, caregivers, patients, logs, pending_admins, …" vertex="1">
+          <mxGeometry height="80" width="320" x="390" y="200" as="geometry" />
+        </mxCell>
+        <mxCell id="storage" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#F97316;" value="Firebase Storage (optional)&#xa;e.g. ID files" vertex="1">
+          <mxGeometry height="60" width="320" x="390" y="300" as="geometry" />
+        </mxCell>
+        <mxCell id="optionalContainer" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F0FDF4;strokeColor=#22C55E;fontStyle=1;" value="Optional services" vertex="1">
+          <mxGeometry height="240" width="280" x="780" y="80" as="geometry" />
+        </mxCell>
+        <mxCell id="emailApi" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#16A34A;" value="Verification Email API&#xa;(e.g. Vercel serverless)" vertex="1">
+          <mxGeometry height="60" width="230" x="805" y="110" as="geometry" />
+        </mxCell>
+        <mxCell id="emailjs" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#16A34A;" value="EmailJS" vertex="1">
+          <mxGeometry height="50" width="230" x="805" y="250" as="geometry" />
+        </mxCell>
+        <mxCell id="localContainer" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F8FAFC;strokeColor=#94A3B8;fontStyle=1;" value="Backend (minimal)" vertex="1">
+          <mxGeometry height="130" width="380" x="60" y="485" as="geometry" />
+        </mxCell>
+        <mxCell id="node" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#64748B;" value="Node HTTP server :3001&#xa;GET /health" vertex="1">
+          <mxGeometry height="60" width="320" x="90" y="520" as="geometry" />
+        </mxCell>
+        <mxCell id="e1" edge="1" parent="1" source="browser" style="endArrow=block;html=1;rounded=0;strokeColor=#334155;" target="firestore" value="HTTPS">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e2" edge="1" parent="1" source="browser" style="endArrow=block;html=1;rounded=0;strokeColor=#334155;" target="auth" value="HTTPS">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e3" edge="1" parent="1" source="browser" style="endArrow=block;html=1;rounded=0;strokeColor=#94A3B8;dashed=1;" target="storage" value="HTTPS (optional)">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e4" edge="1" parent="1" source="browser" style="endArrow=block;html=1;rounded=0;strokeColor=#94A3B8;dashed=1;" target="emailApi" value="POST JSON + API key (optional)">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e5" edge="1" parent="1" source="emailApi" style="endArrow=block;html=1;rounded=0;strokeColor=#16A34A;" target="emailjs" value="Email provider API">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e6" edge="1" parent="1" source="mobile" style="endArrow=block;html=1;rounded=0;strokeColor=#334155;" target="firestore" value="HTTPS">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e7" edge="1" parent="1" source="browser" style="endArrow=block;html=1;rounded=0;strokeColor=#CBD5E1;dashed=1;" target="node" value="Not used by SPA (today)">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
