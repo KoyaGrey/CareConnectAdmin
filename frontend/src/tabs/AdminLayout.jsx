@@ -4,9 +4,9 @@ import ConfirmationModal from '../component/ConfirmationModal';
 import EditProfileModal from '../component/EditProfileModal';
 import SuccessModal from '../component/SuccessModal';
 import { getCurrentRole, logout, ROLES } from '../utils/auth';
-import { getDoc, doc, updateDoc } from 'firebase/firestore';
+import { getDoc, doc } from 'firebase/firestore';
 import { db } from '../utils/firebase';
-import { SUPER_ADMIN_CREDENTIALS, createLogEntry } from '../utils/firestoreService';
+import { SUPER_ADMIN_CREDENTIALS, createLogEntry, updateAdmin } from '../utils/firestoreService';
 import CareConnectWheelChairLogo from '../component/img/careconnect-wheelchair-logo.png';
 
 function AdminLayout({
@@ -236,26 +236,18 @@ function AdminLayout({
         adminId = profile.adminId;
       }
       
-      // Update in Firestore
+      const profileUpdates = {
+        name: newData.fullName,
+        email: newData.email,
+        username: newData.username,
+        ...(newData.password && String(newData.password).trim() !== '' ? { password: newData.password } : {})
+      };
+
       if (currentRole === ROLES.SUPER_ADMIN) {
-        // Update super admin - always use SUPER_ADMIN_CREDENTIALS.DOC_ID
         adminId = SUPER_ADMIN_CREDENTIALS.DOC_ID;
-        const superAdminRef = doc(db, 'admins', SUPER_ADMIN_CREDENTIALS.DOC_ID);
-        await updateDoc(superAdminRef, {
-          name: newData.fullName,
-          email: newData.email,
-          username: newData.username,
-          ...(newData.password && { password: newData.password })
-        });
+        await updateAdmin(SUPER_ADMIN_CREDENTIALS.DOC_ID, profileUpdates);
       } else if (adminId) {
-        // Update regular admin
-        const adminRef = doc(db, 'admins', adminId);
-        await updateDoc(adminRef, {
-          name: newData.fullName,
-          email: newData.email,
-          username: newData.username,
-          ...(newData.password && { password: newData.password })
-        });
+        await updateAdmin(adminId, profileUpdates);
       }
       
       // Update local state
