@@ -525,7 +525,45 @@ export const getPatientById = async (patientId) => {
   }
 };
 
-/** Fetch connected patient for a caregiver via connections collection (see docs/ADMIN_FIREBASE_CONNECTIONS.md). */
+/** Patient doc id from caregiver document (mobile app often uses `patients` array; optional `assignedPatient`). */
+const getPatientDocIdFromCaregiverData = (data) => {
+  if (!data) return null;
+  const arr = data.patients;
+  if (Array.isArray(arr) && arr.length > 0) {
+    const first = arr[0];
+    if (typeof first === 'string' && first.trim()) return first.trim();
+    if (first && typeof first === 'object') {
+      const id = first.patientDocId || first.patientId || first.id || first.documentId;
+      if (id && String(id).trim()) return String(id).trim();
+    }
+  }
+  const ap = data.assignedPatient;
+  if (typeof ap === 'string' && ap.trim() && ap.toLowerCase() !== 'not assigned') {
+    return ap.trim();
+  }
+  return null;
+};
+
+/** Caregiver doc id from patient document (mirror of `patients` on caregiver). */
+const getCaregiverDocIdFromPatientData = (data) => {
+  if (!data) return null;
+  const arr = data.caregivers;
+  if (Array.isArray(arr) && arr.length > 0) {
+    const first = arr[0];
+    if (typeof first === 'string' && first.trim()) return first.trim();
+    if (first && typeof first === 'object') {
+      const id = first.caregiverDocId || first.caregiverId || first.id || first.documentId;
+      if (id && String(id).trim()) return String(id).trim();
+    }
+  }
+  const ac = data.assignedCaregiver;
+  if (typeof ac === 'string' && ac.trim()) return ac.trim();
+  return null;
+};
+
+/**
+ * Connected patient: prefer `connections` collection; if empty, read caregiver's `patients` array (see docs/ADMIN_FIREBASE_CONNECTIONS.md).
+ */
 export const getConnectedPatientForCaregiver = async (caregiverDocId, caregiverAuthUid = null) => {
   const ref = collection(db, COLLECTIONS.CONNECTIONS);
   let snapshot;
@@ -538,24 +576,64 @@ export const getConnectedPatientForCaregiver = async (caregiverDocId, caregiverA
     const qByUid = query(ref, where('caregiverId', '==', String(caregiverAuthUid).trim()), limit(1));
     snapshot = await getDocs(qByUid);
   }
-  if (!snapshot || snapshot.empty) return null;
-  const conn = snapshot.docs[0].data();
-  const patientDocId = conn.patientDocId;
-  if (!patientDocId) return null;
-  return getPatientById(patientDocId);
+  if (snapshot && !snapshot.empty) {
+    const conn = snapshot.docs[0].data();
+    const patientDocId = conn.patientDocId;
+    if (patientDocId) {
+      const patient = await getPatientById(patientDocId);
+      if (patient) return patient;
+    }
+  }
+
+  if (caregiverDocId && String(caregiverDocId).trim()) {
+    try {
+      const caregiverSnap = await getDoc(doc(db, COLLECTIONS.CAREGIVERS, String(caregiverDocId).trim()));
+      if (caregiverSnap.exists()) {
+        const pid = getPatientDocIdFromCaregiverData(caregiverSnap.data());
+        if (pid) {
+          const patient = await getPatientById(pid);
+          if (patient) return patient;
+        }
+      }
+    } catch (e) {
+      console.warn('getConnectedPatientForCaregiver caregiver.patients fallback:', e);
+    }
+  }
+
+  return null;
 };
 
-/** Fetch connected caregiver(s) for a patient via connections collection. Returns first or null. */
+/**
+ * Connected caregiver: prefer `connections`; if empty, read patient's `caregivers` array.
+ */
 export const getConnectedCaregiverForPatient = async (patientDocId) => {
   if (!patientDocId || !String(patientDocId).trim()) return null;
   const ref = collection(db, COLLECTIONS.CONNECTIONS);
   const q = query(ref, where('patientDocId', '==', String(patientDocId).trim()), limit(1));
   const snapshot = await getDocs(q);
-  if (snapshot.empty) return null;
-  const conn = snapshot.docs[0].data();
-  const caregiverDocId = conn.caregiverDocId;
-  if (!caregiverDocId) return null;
-  return getCaregiverById(caregiverDocId);
+  if (snapshot && !snapshot.empty) {
+    const conn = snapshot.docs[0].data();
+    const caregiverDocId = conn.caregiverDocId;
+    if (caregiverDocId) {
+      const caregiver = await getCaregiverById(caregiverDocId);
+      if (caregiver) return caregiver;
+    }
+  }
+
+  try {
+    const patientSnap = await getDoc(doc(db, COLLECTIONS.PATIENTS, String(patientDocId).trim()));
+    if (patientSnap.exists()) {
+      const cid = getCaregiverDocIdFromPatientData(patientSnap.data());
+      if (cid) {
+        const caregiver = await getCaregiverById(cid);
+        if (caregiver) return caregiver;
+      }
+    }
+  } catch (e) {
+    console.warn('getConnectedCaregiverForPatient patient.caregivers fallback:', e);
+  }
+
+  return null;
 };
 
 // -------- ARCHIVE --------
